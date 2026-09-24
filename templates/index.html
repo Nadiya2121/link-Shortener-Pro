@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ site_name or "Smart Link Gateway" }}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    .btn-gradient {
+      background: linear-gradient(90deg, #ff0055 0%, #ff5500 100%);
+      box-shadow: 0 4px 20px rgba(255, 0, 85, 0.4);
+    }
+  </style>
+</head>
+<body class="bg-[#0b0a12] text-gray-200 font-sans min-h-screen flex flex-col justify-between select-none">
+
+  <!-- হেডার -->
+  <header class="p-4 border-b border-gray-800 bg-[#12101f]/90 backdrop-blur sticky top-0 z-30">
+    <div class="max-w-4xl mx-auto flex justify-between items-center">
+      <a href="/" class="text-xl font-black bg-gradient-to-r from-rose-500 to-amber-400 bg-clip-text text-transparent">
+        {{ site_name or "Pom Pom Links" }}
+      </a>
+      <a href="/admin" class="text-xs bg-gray-800 text-gray-300 px-3 py-1.5 rounded-xl border border-gray-700">Admin</a>
+    </div>
+  </header>
+
+  <!-- মূল কন্টেন্ট সুইচিং -->
+  <main class="flex-1 flex items-center justify-center p-4">
+
+    <!-- ক) হোমপেজ শর্টনার -->
+    {% if mode == 'home' %}
+    <div class="w-full max-w-lg bg-[#141222] border border-gray-800 p-6 sm:p-8 rounded-3xl shadow-2xl text-center">
+      <div class="w-16 h-16 bg-rose-500/10 text-rose-500 rounded-2xl flex items-center justify-center mx-auto mb-4 text-2xl">
+        <i class="fa-solid fa-link"></i>
+      </div>
+      <h2 class="text-2xl font-black text-white mb-2">Smart URL Shortener</h2>
+      <p class="text-xs text-gray-400 mb-6">আপনার বড় লিংকটি দিয়ে এক ক্লিকে সুরক্ষিত শর্ট লিংক তৈরি করুন</p>
+
+      {% if public_enabled %}
+      <form id="shortenForm" class="space-y-4">
+        <input id="longUrl" type="url" required placeholder="https://example.com/very-long-url..." class="w-full bg-[#1b182e] border border-gray-700 rounded-2xl px-4 py-3.5 text-xs text-white focus:outline-none focus:border-rose-500">
+        <button type="submit" id="btnCreate" class="w-full btn-gradient text-white font-bold py-3.5 rounded-2xl text-sm shadow-lg active:scale-95 transition">
+          Create Short Link
+        </button>
+      </form>
+
+      <div id="resultBox" class="hidden mt-6 bg-[#1b182e] border border-emerald-500/30 p-4 rounded-2xl text-left">
+        <p class="text-[11px] text-gray-400 mb-1 font-bold">শর্ট লিংক তৈরি সম্পন্ন:</p>
+        <div class="flex gap-2">
+          <input id="shortRes" readonly class="flex-1 bg-transparent font-mono text-xs text-emerald-400 focus:outline-none">
+          <button onclick="copyResult()" class="bg-emerald-600 px-3 py-1 rounded-xl text-xs font-bold text-white">Copy</button>
+        </div>
+      </div>
+      {% else %}
+      <div class="p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl text-xs text-amber-400">
+        পাবলিক লিংক শর্টনার বর্তমানে বন্ধ রয়েছে। টেলিগ্রাম বট ব্যবহার করে শর্ট লিংক তৈরি করুন।
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- খ) মাল্টি-স্টেপ রিডাইরেক্ট স্ক্রিন -->
+    {% elif mode == 'step' %}
+    <div class="w-full max-w-sm bg-[#141222] border border-gray-800 p-6 sm:p-8 rounded-3xl shadow-2xl text-center">
+      <div class="flex justify-between items-center text-[10px] text-gray-400 font-bold uppercase mb-4 tracking-wider">
+        <span>Gateway Verification</span>
+        <span class="text-rose-400">Step {{ step_num }} / {{ total_steps }}</span>
+      </div>
+
+      <div class="w-16 h-16 bg-gradient-to-b from-amber-400 to-rose-500 rounded-2xl flex items-center justify-center mx-auto mb-4 text-black text-2xl shadow-lg">
+        <i class="fa-solid fa-shield-halved"></i>
+      </div>
+
+      <h3 class="text-lg font-bold text-white mb-1">{{ step.title }}</h3>
+      <p class="text-xs text-gray-400 mb-6">{{ step.description }}</p>
+
+      <div class="bg-[#1b182e] p-4 rounded-2xl mb-6 border border-gray-800">
+        <div id="countdown" class="text-4xl font-black text-rose-500 mb-0.5">{{ step.timer }}</div>
+        <p class="text-[10px] text-gray-400 uppercase font-bold">Seconds Remaining</p>
+      </div>
+
+      <a id="stepBtn" href="{{ next_url }}" data-ad="{{ direct_url }}" class="w-full btn-gradient text-white font-bold py-3.5 rounded-2xl text-sm flex items-center justify-center gap-2 opacity-40 pointer-events-none transition">
+        <span>{{ step.button_text }}</span>
+      </a>
+    </div>
+
+    <!-- গ) ফাইনাল টেলিগ্রাম ফাইল আনলক স্ক্রিন -->
+    {% elif mode == 'final' %}
+    <div class="w-full max-w-sm bg-[#141222] border border-gray-800 p-6 sm:p-8 rounded-3xl shadow-2xl text-center">
+      <div class="w-16 h-16 bg-emerald-500/10 text-emerald-400 rounded-2xl flex items-center justify-center mx-auto mb-4 text-3xl">
+        <i class="fa-solid fa-circle-check"></i>
+      </div>
+      <h3 class="text-lg font-bold text-white mb-1">কন্টেন্ট আনলক সম্পন্ন!</h3>
+      <p class="text-xs text-gray-400 mb-6">নিচের বাটনে ক্লিক করলেই সরাসরি টেলিগ্রামের ইনবক্সে ফাইল পেয়ে যাবেন।</p>
+
+      <div class="bg-[#1b182e] p-3 rounded-2xl mb-6 text-xs text-gray-300 font-mono truncate">
+        📌 {{ content_name }}
+      </div>
+
+      <a href="{{ deep_link }}" class="w-full btn-gradient text-white font-bold py-3.5 rounded-2xl text-sm flex items-center justify-center gap-2 shadow-lg active:scale-95 transition">
+        <i class="fa-brands fa-telegram text-lg"></i> Collect in Telegram
+      </a>
+    </div>
+
+    <!-- ঘ) এরর স্ক্রিন -->
+    {% elif mode == 'error' %}
+    <div class="w-full max-w-sm bg-[#141222] border border-red-500/30 p-6 rounded-3xl shadow-2xl text-center">
+      <div class="text-4xl text-red-500 mb-3"><i class="fa-solid fa-triangle-exclamation"></i></div>
+      <h3 class="text-base font-bold text-white mb-2">Error Encountered</h3>
+      <p class="text-xs text-gray-400 mb-4">{{ message }}</p>
+      <a href="/" class="text-xs bg-gray-800 text-gray-200 px-4 py-2 rounded-xl">Return to Homepage</a>
+    </div>
+    {% endif %}
+
+  </main>
+
+  <footer class="p-4 border-t border-gray-800/80 text-center text-xs text-gray-500">
+    &copy; 2026 {{ site_name or "Smart Link Platform" }}. All rights reserved.
+  </footer>
+
+  <!-- স্ক্রিপ্ট -->
+  <script>
+    // হোমপেজ শর্টনার JS
+    const form = document.getElementById('shortenForm');
+    if (form) {
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = document.getElementById('btnCreate');
+        btn.disabled = true;
+        btn.innerText = "Creating...";
+
+        try {
+          const res = await fetch('/api/create', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ url: document.getElementById('longUrl').value })
+          });
+          const data = await res.json();
+          if (data.status === 'success') {
+            document.getElementById('shortRes').value = data.short_url;
+            document.getElementById('resultBox').classList.remove('hidden');
+          }
+        } catch (err) {
+          alert('Error creating link!');
+        }
+        btn.disabled = false;
+        btn.innerText = "Create Short Link";
+      });
+    }
+
+    function copyResult() {
+      const input = document.getElementById('shortRes');
+      input.select();
+      document.execCommand('copy');
+      alert('শর্ট লিংক কপি করা হয়েছে!');
+    }
+
+    // স্টেপ পেজ টাইমার ও অ্যাড রোটেশন JS
+    const countEl = document.getElementById('countdown');
+    if (countEl) {
+      let sec = parseInt(countEl.innerText);
+      const btn = document.getElementById('stepBtn');
+      const adUrl = btn.getAttribute('data-ad');
+
+      const timer = setInterval(() => {
+        sec--;
+        countEl.innerText = sec;
+        if (sec <= 0) {
+          clearInterval(timer);
+          btn.classList.remove('opacity-40', 'pointer-events-none');
+          countEl.innerText = "✓";
+        }
+      }, 1000);
+
+      btn.addEventListener('click', () => {
+        if (adUrl && adUrl.length > 5) {
+          window.open(adUrl, '_blank');
+        }
+      });
+    }
+  </script>
+</body>
+</html>
