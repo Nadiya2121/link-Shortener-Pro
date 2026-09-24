@@ -7,9 +7,23 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <style>
+    html {
+      scroll-behavior: smooth;
+    }
     .btn-gradient {
       background: linear-gradient(90deg, #ff0055 0%, #ff5500 100%);
       box-shadow: 0 4px 20px rgba(255, 0, 85, 0.4);
+    }
+    /* ব্যানার কনটেইনার */
+    .ad-banner-slot {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 50px;
+      overflow: hidden;
+      margin: 1rem auto;
+      text-align: center;
+      width: 100%;
     }
   </style>
 </head>
@@ -21,16 +35,16 @@
       <a href="/" class="text-xl font-black bg-gradient-to-r from-rose-500 to-amber-400 bg-clip-text text-transparent">
         {{ site_name or "Pom Pom Links" }}
       </a>
-      <a href="/admin" class="text-xs bg-gray-800 text-gray-300 px-3 py-1.5 rounded-xl border border-gray-700">Admin</a>
+      <a href="/admin" class="text-xs bg-gray-800 text-gray-300 px-3 py-1.5 rounded-xl border border-gray-700 hover:border-gray-500">Admin</a>
     </div>
   </header>
 
-  <!-- মূল কন্টেন্ট সুইচিং -->
-  <main class="flex-1 flex items-center justify-center p-4">
+  <!-- মূল কন্টেন্ট সেকশন -->
+  <main class="flex-1 flex flex-col items-center justify-center p-4">
 
     <!-- ক) হোমপেজ শর্টনার -->
     {% if mode == 'home' %}
-    <div class="w-full max-w-lg bg-[#141222] border border-gray-800 p-6 sm:p-8 rounded-3xl shadow-2xl text-center">
+    <div class="w-full max-w-lg bg-[#141222] border border-gray-800 p-6 sm:p-8 rounded-3xl shadow-2xl text-center my-6">
       <div class="w-16 h-16 bg-rose-500/10 text-rose-500 rounded-2xl flex items-center justify-center mx-auto mb-4 text-2xl">
         <i class="fa-solid fa-link"></i>
       </div>
@@ -59,41 +73,62 @@
       {% endif %}
     </div>
 
-    <!-- খ) মাল্টি-স্টেপ রিডাইরেক্ট স্ক্রিন -->
+    <!-- খ) মাল্টি-স্টেপ রিডাইরেক্ট স্ক্রিন (নেটিভ অ্যাড ও অটো-স্ক্রোল সহ) -->
     {% elif mode == 'step' %}
-    <div class="w-full max-w-sm bg-[#141222] border border-gray-800 p-6 sm:p-8 rounded-3xl shadow-2xl text-center">
-      <div class="flex justify-between items-center text-[10px] text-gray-400 font-bold uppercase mb-4 tracking-wider">
-        <span>Gateway Verification</span>
-        <span class="text-rose-400">Step {{ step_num }} / {{ total_steps }}</span>
+    <div class="w-full max-w-md flex flex-col items-center">
+      
+      <!-- ১. টপ নেটিভ ব্যানার অ্যাড স্লট -->
+      {% if native_ad_top %}
+      <div class="ad-banner-slot">
+        {{ native_ad_top | safe }}
+      </div>
+      {% endif %}
+
+      <!-- প্রধান স্টেপ কার্ড -->
+      <div class="w-full bg-[#141222] border border-gray-800 p-6 sm:p-8 rounded-3xl shadow-2xl text-center my-4">
+        <div class="flex justify-between items-center text-[10px] text-gray-400 font-bold uppercase mb-4 tracking-wider">
+          <span>Gateway Verification</span>
+          <span class="text-rose-400 font-mono">Step {{ step_num }} / {{ total_steps }}</span>
+        </div>
+
+        <div class="w-16 h-16 bg-gradient-to-b from-amber-400 to-rose-500 rounded-2xl flex items-center justify-center mx-auto mb-4 text-black text-2xl shadow-lg">
+          <i class="fa-solid fa-shield-halved"></i>
+        </div>
+
+        <h3 class="text-lg font-bold text-white mb-1">{{ step.title }}</h3>
+        <p class="text-xs text-gray-400 mb-6">{{ step.description }}</p>
+
+        <!-- টাইমার এবং অটো-স্ক্রোল টার্গেট -->
+        <div id="actionAnchor" class="bg-[#1b182e] p-4 rounded-2xl mb-6 border border-gray-800">
+          <div id="countdown" class="text-4xl font-black text-rose-500 mb-0.5">{{ step.timer }}</div>
+          <p class="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Seconds Remaining</p>
+        </div>
+
+        <!-- অ্যাকশন বাটন -->
+        <a id="stepBtn" href="{{ next_url }}" data-ad="{{ direct_url }}" class="w-full btn-gradient text-white font-bold py-3.5 rounded-2xl text-sm flex items-center justify-center gap-2 opacity-40 pointer-events-none transition active:scale-95 shadow-lg">
+          <span>{{ step.button_text }}</span>
+        </a>
       </div>
 
-      <div class="w-16 h-16 bg-gradient-to-b from-amber-400 to-rose-500 rounded-2xl flex items-center justify-center mx-auto mb-4 text-black text-2xl shadow-lg">
-        <i class="fa-solid fa-shield-halved"></i>
+      <!-- ২. বটম নেটিভ ব্যানার অ্যাড স্লট -->
+      {% if native_ad_bottom %}
+      <div class="ad-banner-slot">
+        {{ native_ad_bottom | safe }}
       </div>
+      {% endif %}
 
-      <h3 class="text-lg font-bold text-white mb-1">{{ step.title }}</h3>
-      <p class="text-xs text-gray-400 mb-6">{{ step.description }}</p>
-
-      <div class="bg-[#1b182e] p-4 rounded-2xl mb-6 border border-gray-800">
-        <div id="countdown" class="text-4xl font-black text-rose-500 mb-0.5">{{ step.timer }}</div>
-        <p class="text-[10px] text-gray-400 uppercase font-bold">Seconds Remaining</p>
-      </div>
-
-      <a id="stepBtn" href="{{ next_url }}" data-ad="{{ direct_url }}" class="w-full btn-gradient text-white font-bold py-3.5 rounded-2xl text-sm flex items-center justify-center gap-2 opacity-40 pointer-events-none transition">
-        <span>{{ step.button_text }}</span>
-      </a>
     </div>
 
     <!-- গ) ফাইনাল টেলিগ্রাম ফাইল আনলক স্ক্রিন -->
     {% elif mode == 'final' %}
-    <div class="w-full max-w-sm bg-[#141222] border border-gray-800 p-6 sm:p-8 rounded-3xl shadow-2xl text-center">
+    <div class="w-full max-w-sm bg-[#141222] border border-gray-800 p-6 sm:p-8 rounded-3xl shadow-2xl text-center my-6">
       <div class="w-16 h-16 bg-emerald-500/10 text-emerald-400 rounded-2xl flex items-center justify-center mx-auto mb-4 text-3xl">
         <i class="fa-solid fa-circle-check"></i>
       </div>
       <h3 class="text-lg font-bold text-white mb-1">কন্টেন্ট আনলক সম্পন্ন!</h3>
       <p class="text-xs text-gray-400 mb-6">নিচের বাটনে ক্লিক করলেই সরাসরি টেলিগ্রামের ইনবক্সে ফাইল পেয়ে যাবেন।</p>
 
-      <div class="bg-[#1b182e] p-3 rounded-2xl mb-6 text-xs text-gray-300 font-mono truncate">
+      <div class="bg-[#1b182e] p-3 rounded-2xl mb-6 text-xs text-gray-300 font-mono truncate border border-gray-800">
         📌 {{ content_name }}
       </div>
 
@@ -104,11 +139,11 @@
 
     <!-- ঘ) এরর স্ক্রিন -->
     {% elif mode == 'error' %}
-    <div class="w-full max-w-sm bg-[#141222] border border-red-500/30 p-6 rounded-3xl shadow-2xl text-center">
+    <div class="w-full max-w-sm bg-[#141222] border border-red-500/30 p-6 rounded-3xl shadow-2xl text-center my-6">
       <div class="text-4xl text-red-500 mb-3"><i class="fa-solid fa-triangle-exclamation"></i></div>
       <h3 class="text-base font-bold text-white mb-2">Error Encountered</h3>
       <p class="text-xs text-gray-400 mb-4">{{ message }}</p>
-      <a href="/" class="text-xs bg-gray-800 text-gray-200 px-4 py-2 rounded-xl">Return to Homepage</a>
+      <a href="/" class="text-xs bg-gray-800 text-gray-200 px-4 py-2 rounded-xl hover:bg-gray-700">Return to Homepage</a>
     </div>
     {% endif %}
 
@@ -118,9 +153,9 @@
     &copy; 2026 {{ site_name or "Smart Link Platform" }}. All rights reserved.
   </footer>
 
-  <!-- স্ক্রিপ্ট -->
+  <!-- স্ক্রিপ্ট লজিক -->
   <script>
-    // হোমপেজ শর্টনার JS
+    // ১. হোমপেজ লিংক শর্টনার লজিক
     const form = document.getElementById('shortenForm');
     if (form) {
       form.addEventListener('submit', async (e) => {
@@ -155,9 +190,19 @@
       alert('শর্ট লিংক কপি করা হয়েছে!');
     }
 
-    // স্টেপ পেজ টাইমার ও অ্যাড রোটেশন JS
+    // ২. স্টেপ পেজ টাইমার ও অটো-স্ক্রোল লজিক
     const countEl = document.getElementById('countdown');
     if (countEl) {
+      // 🌟 অটো-স্ক্রোল ট্রিক: পেজ লোড হওয়ার ৭০০ms পর স্মুথভাবে নিচে বাটনের কাছে নিয়ে যাবে
+      {% if auto_scroll_enabled is not defined or auto_scroll_enabled %}
+      setTimeout(() => {
+        const target = document.getElementById('actionAnchor');
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 700);
+      {% endif %}
+
       let sec = parseInt(countEl.innerText);
       const btn = document.getElementById('stepBtn');
       const adUrl = btn.getAttribute('data-ad');
