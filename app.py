@@ -3,6 +3,8 @@ import random
 import string
 import secrets
 import time
+import threading
+import requests
 from datetime import datetime, timezone, timedelta
 from contextlib import asynccontextmanager
 from bson import ObjectId
@@ -32,14 +34,14 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123").strip()
 BASE_URL = os.getenv("BASE_URL", "http://localhost:8000").rstrip("/")
 PORT = int(os.getenv("PORT", "8000"))
 
-# অ্যাডমিন আইডি (কমা দিয়ে একাধিক দেওয়া যাবে)
-admin_raw = os.getenv("ADMIN_IDS", "5370676246,8976339036")
+# অ্যাডমিন আইডি
+admin_raw = os.getenv("ADMIN_IDS", "5370676246")
 ADMIN_IDS = [int(x.strip()) for x in admin_raw.split(",") if x.strip().isdigit()]
 
 step_signer = URLSafeTimedSerializer(SECRET_KEY, salt="step-clearance")
 admin_signer = URLSafeTimedSerializer(SECRET_KEY, salt="admin-session")
 
-# 🌟 হাই-পারফরম্যান্স কানেকশন পুল (হাজার ইউজারের চাপ সামলানোর জন্য)
+# হাই-পারফরম্যান্স ডাটাবেজ কানেকশন পুল
 client = AsyncIOMotorClient(MONGO_URI, maxPoolSize=50, minPoolSize=10, serverSelectionTimeoutMS=5000)
 db = client.get_default_database()
 
@@ -72,7 +74,20 @@ async def resolve_weighted_direct_link():
     except Exception:
         return None
 
-# গ্লোবাল বট ইনস্ট্যান্স
+# 🌟 ইন্টারনাল সেলফ-পিং ইঞ্জিন (Render স্লিপ মোড চিরতরে বন্ধ রাখার জন্য)
+def keep_alive_self_ping():
+    time.sleep(30)  # সার্ভার সম্পূর্ণ চালু হতে ৩০ সেকেন্ড বিরতি
+    print("🚀 Internal Keep-Alive Self-Ping Engine Activated!")
+    while True:
+        try:
+            # প্রতি ৯ মিনিট পর পর নিজের /health লিংকে পিং পাঠাবে
+            target_url = f"{BASE_URL.rstrip('/')}/health"
+            res = requests.get(target_url, timeout=10)
+            print(f"💓 Self-Ping Sent to keep server awake. Status: {res.status_code}")
+        except Exception as e:
+            print(f"Self-ping notice: {e}")
+        time.sleep(9 * 60)  # ৯ মিনিট পর পর ঘুরবে
+
 bot_instance = None
 
 @asynccontextmanager
@@ -105,9 +120,12 @@ async def lifespan(app: FastAPI):
                 {"name": "Security Check", "title": "Verifying Link Gateway", "description": "Please wait while we verify destination security.", "timer": 7, "button_text": "Continue", "status": True, "order": 1},
                 {"name": "Final Clearance", "title": "Unlocking Requested Content", "description": "Your requested destination is ready. Click below to proceed.", "timer": 5, "button_text": "Get Link / Download", "status": True, "order": 2}
             ])
-        print("✅ Database & Indexes Ready!")
+        print("✅ Database & Settings Ready!")
     except Exception as e:
         print(f"Startup Warning: {e}")
+
+    # ব্যাকগ্রাউন্ড সেলফ-পিং চালু করা
+    threading.Thread(target=keep_alive_self_ping, daemon=True).start()
 
     # টেলিগ্রাম বট ইনিট
     if BOT_TOKEN:
@@ -124,15 +142,13 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-# 🌟 আল্ট্রা-ফাস্ট টেলিগ্রাম Webhook গেটওয়ে (Instant 0.001s Response)
+# ফাস্ট টেলিগ্রাম Webhook গেটওয়ে
 @app.post("/api/telegram/webhook")
 async def telegram_webhook_handler(request: Request):
     if bot_instance:
         update_json = await request.json()
         import telebot
         update = telebot.types.Update.de_json(update_json)
-        # ব্যাকগ্রাউন্ডে প্রসেস হবে, টেলিগ্রাম সাথে সাথে OK পাবে
-        import threading
         threading.Thread(target=bot_instance.process_new_updates, args=([update],), daemon=True).start()
     return Response(status_code=200)
 
