@@ -15,11 +15,9 @@ from pydantic import BaseModel, HttpUrl
 from itsdangerous import URLSafeTimedSerializer
 
 # ========================================================
-# কনফিগারেশন ও অটোমেটিক ক্লিন লিঙ্ক হ্যান্ডলার
+# কনফিগারেশন
 # ========================================================
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
-
-# আপনার আসল মঙ্গোডিবি লিঙ্ক (অটো-ক্লিন সহ)
 DEFAULT_MONGO = "mongodb+srv://MovieLinkbd:MovieLinkbd@cluster0.cmx4zn5.mongodb.net/smart_shortener?retryWrites=true&w=majority"
 raw_mongo = os.getenv("MONGO_URI", "").strip()
 
@@ -34,15 +32,18 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123").strip()
 BASE_URL = os.getenv("BASE_URL", "http://localhost:8000").rstrip("/")
 PORT = int(os.getenv("PORT", "8000"))
 
-# সিকিউরিটি সাইনার
+# অ্যাডমিন আইডি (কমা দিয়ে একাধিক দেওয়া যাবে)
+admin_raw = os.getenv("ADMIN_IDS", "5370676246,8976339036")
+ADMIN_IDS = [int(x.strip()) for x in admin_raw.split(",") if x.strip().isdigit()]
+
 step_signer = URLSafeTimedSerializer(SECRET_KEY, salt="step-clearance")
 admin_signer = URLSafeTimedSerializer(SECRET_KEY, salt="admin-session")
 
-# নিরাপদ ডাটাবেজ ক্লায়েন্ট ইনিট
-client = AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+# 🌟 হাই-পারফরম্যান্স কানেকশন পুল (হাজার ইউজারের চাপ সামলানোর জন্য)
+client = AsyncIOMotorClient(MONGO_URI, maxPoolSize=50, minPoolSize=10, serverSelectionTimeoutMS=5000)
 db = client.get_default_database()
 
-sync_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+sync_client = MongoClient(MONGO_URI, maxPoolSize=50, minPoolSize=10, serverSelectionTimeoutMS=5000)
 sync_db = sync_client.get_default_database()
 
 templates = Jinja2Templates(directory="templates")
@@ -71,17 +72,19 @@ async def resolve_weighted_direct_link():
     except Exception:
         return None
 
+# গ্লোবাল বট ইনস্ট্যান্স
+bot_instance = None
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global bot_instance
     try:
-        # ইনডেক্সিং
         await db.links.create_index("short_code", unique=True)
         await db.links.create_index("created_at")
         await db.steps.create_index("order")
         await db.direct_links.create_index("status")
         await db.clicks.create_index("timestamp")
 
-        # ডিফল্ট সেটিংস
         if not await db.settings.find_one({"type": "global"}):
             await db.settings.insert_one({
                 "type": "global",
@@ -97,31 +100,42 @@ async def lifespan(app: FastAPI):
                 "auto_scroll_enabled": True
             })
 
-        # ডিফল্ট স্টেপ
         if await db.steps.count_documents({}) == 0:
             await db.steps.insert_many([
                 {"name": "Security Check", "title": "Verifying Link Gateway", "description": "Please wait while we verify destination security.", "timer": 7, "button_text": "Continue", "status": True, "order": 1},
                 {"name": "Final Clearance", "title": "Unlocking Requested Content", "description": "Your requested destination is ready. Click below to proceed.", "timer": 5, "button_text": "Get Link / Download", "status": True, "order": 2}
             ])
-        print("✅ Database & Global Settings Initialized Successfully!")
+        print("✅ Database & Indexes Ready!")
     except Exception as e:
-        print(f"⚠️ Startup Notice: {e}")
+        print(f"Startup Warning: {e}")
 
     # টেলিগ্রাম বট ইনিট
     if BOT_TOKEN:
         try:
             import bot
-            bot.init_bot(app, sync_db, {
+            bot_instance = bot.init_bot(app, sync_db, {
                 "BOT_TOKEN": BOT_TOKEN,
-                "BASE_URL": BASE_URL
+                "BASE_URL": BASE_URL,
+                "ADMIN_IDS": ADMIN_IDS
             })
         except Exception as e:
-            print(f"Bot start failed: {e}")
+            print(f"Bot init error: {e}")
     yield
 
 app = FastAPI(lifespan=lifespan)
 
-# অ্যাডমিন গার্ড
+# 🌟 আল্ট্রা-ফাস্ট টেলিগ্রাম Webhook গেটওয়ে (Instant 0.001s Response)
+@app.post("/api/telegram/webhook")
+async def telegram_webhook_handler(request: Request):
+    if bot_instance:
+        update_json = await request.json()
+        import telebot
+        update = telebot.types.Update.de_json(update_json)
+        # ব্যাকগ্রাউন্ডে প্রসেস হবে, টেলিগ্রাম সাথে সাথে OK পাবে
+        import threading
+        threading.Thread(target=bot_instance.process_new_updates, args=([update],), daemon=True).start()
+    return Response(status_code=200)
+
 async def check_admin_session(request: Request):
     cookie = request.cookies.get("admin_token")
     if not cookie:
@@ -133,12 +147,12 @@ async def check_admin_session(request: Request):
     return True
 
 # -----------------------------------------------------------------------------
-# পাবলিক শর্টনার ও মাল্টি-স্টেপ রিডাইরেক্ট রুটসমূহ
+# পাবলিক ও মাল্টি-স্টেপ রুট
 # -----------------------------------------------------------------------------
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "time": time.time()}
 
 @app.get("/", response_class=HTMLResponse)
 async def home_page(request: Request):
@@ -178,14 +192,12 @@ async def api_create(req: ShortenReq):
 
     return {"status": "success", "short_url": f"{base}/s/{code}"}
 
-# গেটওয়ে এন্ট্রি
 @app.get("/s/{code}", response_class=HTMLResponse)
 async def short_gateway(code: str, request: Request):
     link = await db.links.find_one({"short_code": code})
     if not link or link.get("status") != "Active":
         return templates.TemplateResponse("index.html", {"request": request, "mode": "error", "message": "Link not found or disabled."}, status_code=404)
 
-    # ক্লিক কাউন্ট
     await db.links.update_one({"_id": link["_id"]}, {"$inc": {"clicks": 1}})
     await db.clicks.insert_one({"short_code": code, "timestamp": datetime.now(timezone.utc)})
 
@@ -196,7 +208,6 @@ async def short_gateway(code: str, request: Request):
     token = step_signer.dumps({"code": code, "step": 0})
     return RedirectResponse(f"/s/{code}/step/0?auth={token}", status_code=303)
 
-# স্টেপ এক্সিকিউশন (নেটিভ ব্যানার ও অটো-স্ক্রোল ডাটা সহ)
 @app.get("/s/{code}/step/{step_idx}", response_class=HTMLResponse)
 async def process_step(code: str, step_idx: int, auth: str, request: Request):
     try:
@@ -216,7 +227,6 @@ async def process_step(code: str, step_idx: int, auth: str, request: Request):
     current_step = steps[step_idx]
     await db.links.update_one({"_id": link["_id"]}, {"$inc": {"step_views": 1}})
 
-    # অ্যাড লিংক সিলেকশন
     direct_url = await resolve_weighted_direct_link()
     next_token = step_signer.dumps({"code": code, "step": step_idx + 1})
     is_last = (step_idx + 1) >= len(steps)
@@ -237,7 +247,6 @@ async def process_step(code: str, step_idx: int, auth: str, request: Request):
         "auto_scroll_enabled": settings.get("auto_scroll_enabled", True)
     })
 
-# ফাইনাল আনলক
 @app.get("/s/{code}/final", response_class=HTMLResponse)
 async def final_dispatch(code: str, auth: str, request: Request):
     steps = await db.steps.find({"status": True}).sort("order", 1).to_list(100)
@@ -276,7 +285,7 @@ async def finalize_redirect(link: dict, request: Request):
     })
 
 # -----------------------------------------------------------------------------
-# অ্যাডমিন প্যানেল API ও ভিউ
+# অ্যাডমিন প্যানেল
 # -----------------------------------------------------------------------------
 
 @app.get("/admin/login", response_class=HTMLResponse)
@@ -329,7 +338,6 @@ async def admin_dashboard(request: Request, auth: bool = Depends(check_admin_ses
         "settings": settings or {}
     })
 
-# অ্যাডমিন গ্লোবাল সেটিংস সেভ
 @app.post("/api/admin/settings")
 async def save_settings(
     site_name: str = Form(...),
@@ -354,7 +362,6 @@ async def save_settings(
     )
     return RedirectResponse("/admin", status_code=303)
 
-# 🌟 নেটিভ ব্যানার অ্যাড ও অটো-স্ক্রোল সেভ করার API
 @app.post("/api/admin/save-native-ads")
 async def save_native_ads(
     native_ad_top: str = Form(""),
@@ -373,7 +380,6 @@ async def save_native_ads(
     )
     return RedirectResponse("/admin", status_code=303)
 
-# স্টেপ অ্যাড
 @app.post("/api/admin/steps/add")
 async def add_step(
     name: str = Form(...),
@@ -390,13 +396,11 @@ async def add_step(
     })
     return RedirectResponse("/admin", status_code=303)
 
-# স্টেপ ডিলিট
 @app.post("/api/admin/steps/delete/{sid}")
 async def del_step(sid: str, auth: bool = Depends(check_admin_session)):
     await db.steps.delete_one({"_id": ObjectId(sid)})
     return RedirectResponse("/admin", status_code=303)
 
-# ডিরেক্ট লিংক অ্যাড
 @app.post("/api/admin/direct/add")
 async def add_direct(
     name: str = Form(...),
@@ -407,13 +411,11 @@ async def add_direct(
     await db.direct_links.insert_one({"name": name, "url": url.strip(), "weight": weight, "clicks": 0, "status": "Active"})
     return RedirectResponse("/admin", status_code=303)
 
-# ডিরেক্ট লিংক ডিলিট
 @app.post("/api/admin/direct/delete/{did}")
 async def del_direct(did: str, auth: bool = Depends(check_admin_session)):
     await db.direct_links.delete_one({"_id": ObjectId(did)})
     return RedirectResponse("/admin", status_code=303)
 
-# লিংক ডিলিট
 @app.post("/api/admin/links/delete/{code}")
 async def del_link(code: str, auth: bool = Depends(check_admin_session)):
     await db.links.delete_one({"short_code": code})
