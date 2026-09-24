@@ -91,7 +91,10 @@ async def lifespan(app: FastAPI):
                 "auto_delete_minutes": 10,
                 "protect_content": True,
                 "public_shortener": True,
-                "wait_seconds": 7
+                "wait_seconds": 7,
+                "native_ad_top": "",
+                "native_ad_bottom": "",
+                "auto_scroll_enabled": True
             })
 
         # ডিফল্ট স্টেপ
@@ -193,7 +196,7 @@ async def short_gateway(code: str, request: Request):
     token = step_signer.dumps({"code": code, "step": 0})
     return RedirectResponse(f"/s/{code}/step/0?auth={token}", status_code=303)
 
-# স্টেপ এক্সিকিউশন
+# স্টেপ এক্সিকিউশন (নেটিভ ব্যানার ও অটো-স্ক্রোল ডাটা সহ)
 @app.get("/s/{code}/step/{step_idx}", response_class=HTMLResponse)
 async def process_step(code: str, step_idx: int, auth: str, request: Request):
     try:
@@ -219,6 +222,8 @@ async def process_step(code: str, step_idx: int, auth: str, request: Request):
     is_last = (step_idx + 1) >= len(steps)
     next_url = f"/s/{code}/final?auth={next_token}" if is_last else f"/s/{code}/step/{step_idx + 1}?auth={next_token}"
 
+    settings = await db.settings.find_one({"type": "global"}) or {}
+
     return templates.TemplateResponse("index.html", {
         "request": request,
         "mode": "step",
@@ -226,7 +231,10 @@ async def process_step(code: str, step_idx: int, auth: str, request: Request):
         "step_num": step_idx + 1,
         "total_steps": len(steps),
         "next_url": next_url,
-        "direct_url": direct_url or ""
+        "direct_url": direct_url or "",
+        "native_ad_top": settings.get("native_ad_top", ""),
+        "native_ad_bottom": settings.get("native_ad_bottom", ""),
+        "auto_scroll_enabled": settings.get("auto_scroll_enabled", True)
     })
 
 # ফাইনাল আনলক
@@ -321,6 +329,7 @@ async def admin_dashboard(request: Request, auth: bool = Depends(check_admin_ses
         "settings": settings or {}
     })
 
+# অ্যাডমিন গ্লোবাল সেটিংস সেভ
 @app.post("/api/admin/settings")
 async def save_settings(
     site_name: str = Form(...),
@@ -345,6 +354,26 @@ async def save_settings(
     )
     return RedirectResponse("/admin", status_code=303)
 
+# 🌟 নেটিভ ব্যানার অ্যাড ও অটো-স্ক্রোল সেভ করার API
+@app.post("/api/admin/save-native-ads")
+async def save_native_ads(
+    native_ad_top: str = Form(""),
+    native_ad_bottom: str = Form(""),
+    auto_scroll_enabled: bool = Form(False),
+    auth: bool = Depends(check_admin_session)
+):
+    await db.settings.update_one(
+        {"type": "global"},
+        {"$set": {
+            "native_ad_top": native_ad_top.strip(),
+            "native_ad_bottom": native_ad_bottom.strip(),
+            "auto_scroll_enabled": auto_scroll_enabled
+        }},
+        upsert=True
+    )
+    return RedirectResponse("/admin", status_code=303)
+
+# স্টেপ অ্যাড
 @app.post("/api/admin/steps/add")
 async def add_step(
     name: str = Form(...),
@@ -361,11 +390,13 @@ async def add_step(
     })
     return RedirectResponse("/admin", status_code=303)
 
+# স্টেপ ডিলিট
 @app.post("/api/admin/steps/delete/{sid}")
 async def del_step(sid: str, auth: bool = Depends(check_admin_session)):
     await db.steps.delete_one({"_id": ObjectId(sid)})
     return RedirectResponse("/admin", status_code=303)
 
+# ডিরেক্ট লিংক অ্যাড
 @app.post("/api/admin/direct/add")
 async def add_direct(
     name: str = Form(...),
@@ -376,11 +407,13 @@ async def add_direct(
     await db.direct_links.insert_one({"name": name, "url": url.strip(), "weight": weight, "clicks": 0, "status": "Active"})
     return RedirectResponse("/admin", status_code=303)
 
+# ডিরেক্ট লিংক ডিলিট
 @app.post("/api/admin/direct/delete/{did}")
 async def del_direct(did: str, auth: bool = Depends(check_admin_session)):
     await db.direct_links.delete_one({"_id": ObjectId(did)})
     return RedirectResponse("/admin", status_code=303)
 
+# লিংক ডিলিট
 @app.post("/api/admin/links/delete/{code}")
 async def del_link(code: str, auth: bool = Depends(check_admin_session)):
     await db.links.delete_one({"short_code": code})
