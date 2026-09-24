@@ -5,8 +5,10 @@ from telebot import types
 from datetime import datetime, timezone
 from bson import ObjectId
 
-ALBUM_CACHE = {}
-ALBUM_LOCK = threading.Lock()
+# ব্যাচ প্রসেসিং ট্র্যাকিং
+USER_BATCHES = {}
+BATCH_TIMERS = {}
+BATCH_LOCK = threading.Lock()
 
 def init_bot(app, sync_db, config):
     bot = telebot.TeleBot(config["BOT_TOKEN"], parse_mode="HTML", threaded=True)
@@ -27,7 +29,7 @@ def init_bot(app, sync_db, config):
             "protect_content": settings.get("protect_content", True)
         }
 
-    # ইনবক্স থেকে স্বয়ংক্রিয় ফাইল মুছে দেওয়ার ব্যাকগ্রাউন্ড থ্রেড
+    # ইনবক্স থেকে ফাইল অটোমেটিক ডিলিট করার ব্যাকগ্রাউন্ড টাস্ক
     def schedule_auto_delete(chat_id, message_id, minutes):
         if minutes <= 0:
             return
@@ -46,45 +48,6 @@ def init_bot(app, sync_db, config):
                 pass
 
         threading.Thread(target=delete_worker, daemon=True).start()
-
-    # অ্যালবাম বা ব্যাচ ফাইল প্রসেসিং
-    def flush_album(media_group_id, chat_id):
-        time.sleep(2.0)
-        with ALBUM_LOCK:
-            batch = ALBUM_CACHE.pop(media_group_id, None)
-        if not batch or not batch.get("items"):
-            return
-
-        album_doc = {
-            "media_group_id": media_group_id,
-            "items": batch["items"],
-            "chat_id": chat_id,
-            "created_at": datetime.now(timezone.utc)
-        }
-        res = sync_db.albums.insert_one(album_doc)
-        album_id = str(res.inserted_id)
-
-        from app import generate_unique_code_sync
-        code = generate_unique_code_sync()
-        settings = get_settings()
-
-        link_doc = {
-            "short_code": code,
-            "destination": album_id,
-            "destination_type": "telegram_album",
-            "metadata": {"total_items": len(batch["items"]), "name": f"Batch Media ({len(batch['items'])} files)"},
-            "created_by": f"tg_{chat_id}",
-            "created_at": datetime.now(timezone.utc),
-            "status": "Active",
-            "protect_content": settings["protect_content"],
-            "clicks": 0,
-            "step_views": 0,
-            "final_clicks": 0
-        }
-        sync_db.links.insert_one(link_doc)
-
-        short_url = f"{settings['base_url'].rstrip('/')}/s/{code}"
-        send_creation_response(chat_id, f"Batch Collection ({len(batch['items'])} Files)", short_url, code, settings["protect_content"])
 
     # লিংক তৈরি শেষে অ্যাকশন বাটন সহ মেসেজ প্রদান
     def send_creation_response(chat_id, title, short_url, code, protect_status):
@@ -105,13 +68,95 @@ def init_bot(app, sync_db, config):
             reply_markup=markup
         )
 
+    # চূড়ান্ত ব্যাচ লিংক জেনারেট করার ইঞ্জিন
+    def finalize_batch_link(chat_id):
+        with BATCH_LOCK:
+            batch = USER_BATCHES.pop(chat_id, None)
+            if chat_id in BATCH_TIMERS:
+                del BATCH_TIMERS[chat_id]
+
+        if not batch or not batch.get("items"):
+            return
+
+        items = batch["items"]
+        settings = get_settings()
+        from app import generate_unique_code_sync
+        code = generate_unique_code_sync()
+
+        # যদি মাত্র একটি ফাইল থাকে তাহলে সিঙ্গেল ফাইল লিংক হবে
+        if len(items) == 1:
+            it = items[0]
+            link_doc = {
+                "short_code": code,
+                "destination": it["file_id"],
+                "destination_type": "telegram_file",
+                "metadata": {"file_id": it["file_id"], "file_type": it["file_type"], "name": it["name"]},
+                "created_by": f"tg_{chat_id}",
+                "created_at": datetime.now(timezone.utc),
+                "status": "Active",
+                "protect_content": settings["protect_content"],
+                "clicks": 0,
+                "step_views": 0,
+                "final_clicks": 0
+            }
+            sync_db.links.insert_one(link_doc)
+            short_url = f"{settings['base_url'].rstrip('/')}/s/{code}"
+            send_creation_response(chat_id, it["name"], short_url, code, settings["protect_content"])
+        else:
+            # একাধিক ফাইল থাকলে অ্যালবাম/ব্যাচ হিসেবে সেভ হবে
+            album_doc = {
+                "items": items,
+                "chat_id": chat_id,
+                "created_at": datetime.now(timezone.utc)
+            }
+            res = sync_db.albums.insert_one(album_doc)
+            album_id = str(res.inserted_id)
+
+            link_doc = {
+                "short_code": code,
+                "destination": album_id,
+                "destination_type": "telegram_album",
+                "metadata": {"total_items": len(items), "name": f"Batch Collection ({len(items)} Files)"},
+                "created_by": f"tg_{chat_id}",
+                "created_at": datetime.now(timezone.utc),
+                "status": "Active",
+                "protect_content": settings["protect_content"],
+                "clicks": 0,
+                "step_views": 0,
+                "final_clicks": 0
+            }
+            sync_db.links.insert_one(link_doc)
+            short_url = f"{settings['base_url'].rstrip('/')}/s/{code}"
+            send_creation_response(chat_id, f"Batch Collection ({len(items)} Files)", short_url, code, settings["protect_content"])
+
+    # ফাইলগুলো আসা শেষ হলে Add More / Done প্যানেল শো করা
+    def show_batch_controls(chat_id):
+        time.sleep(1.2)  # টেলিগ্রামের একসাথে পাঠানো মেসেজগুলো জমা হওয়ার ছোট বিরতি
+        with BATCH_LOCK:
+            batch = USER_BATCHES.get(chat_id)
+            if not batch or batch.get("is_waiting_more"):
+                return
+            count = len(batch.get("items", []))
+
+        markup = types.InlineKeyboardMarkup(row_width=2)
+        btn_add_more = types.InlineKeyboardButton("➕ Add More", callback_data="batch_add_more")
+        btn_done = types.InlineKeyboardButton("✅ Done (Create Link)", callback_data="batch_done")
+        markup.add(btn_add_more, btn_done)
+
+        bot.send_message(
+            chat_id,
+            f"📦 <b>মোট ফাইল যুক্ত হয়েছে: {count} টি</b>\n\n"
+            f"আরও ফাইল যোগ করতে চাইলে <b>Add More</b> চাপুন, অথবা লিংক তৈরি করতে <b>Done</b> চাপুন:",
+            reply_markup=markup
+        )
+
     # /start কমান্ড হ্যান্ডলার
     @bot.message_handler(commands=['start'])
     def handle_start(message):
         chat_id = message.chat.id
         text = message.text or ""
 
-        # যদি ইউজার আনলক শেষে ফাইল রিসিভ করতে আসে
+        # যদি ইউজার শর্ট লিংক আনলক করে ফাইল নিতে আসে
         if len(text.split()) > 1 and text.split()[1].startswith("unlock_"):
             code = text.split()[1].replace("unlock_", "")
             link = sync_db.links.find_one({"short_code": code})
@@ -144,38 +189,57 @@ def init_bot(app, sync_db, config):
                 if del_min > 0:
                     schedule_auto_delete(chat_id, sent_msg.message_id, del_min)
 
-            # অ্যালবাম ডেলিভারি
+            # ব্যাচ / অ্যালবাম ডেলিভারি (সবগুলো ফাইল একটার পর একটা পাঠানো)
             elif dtype == "telegram_album":
                 album = sync_db.albums.find_one({"_id": ObjectId(link["destination"])})
                 if album and album.get("items"):
-                    media_arr = []
+                    bot.send_message(chat_id, f"📦 <b>আপনার প্যাকেজের মোট {len(album['items'])}টি ফাইল পাঠানো হচ্ছে...</b>")
                     for idx, it in enumerate(album["items"]):
-                        cap = f"🎉 Batch Content ({idx+1}/{len(album['items'])}){timer_note}" if idx == 0 else ""
-                        media_arr.append(
-                            types.InputMediaPhoto(it["file_id"], caption=cap) if it["file_type"] == "photo"
-                            else types.InputMediaVideo(it["file_id"], caption=cap)
-                        )
-                    sent_msgs = bot.send_media_group(chat_id=chat_id, media=media_arr, protect_content=is_protected)
-                    if del_min > 0:
-                        for m in sent_msgs:
-                            schedule_auto_delete(chat_id, m.message_id, del_min)
+                        caption = f"🎬 Part {idx+1}/{len(album['items'])}: {it.get('name', 'Media')}{timer_note}"
+                        try:
+                            if it["file_type"] == "video":
+                                sent_msg = bot.send_video(chat_id, it["file_id"], protect_content=is_protected, caption=caption)
+                            elif it["file_type"] == "photo":
+                                sent_msg = bot.send_photo(chat_id, it["file_id"], protect_content=is_protected, caption=caption)
+                            else:
+                                sent_msg = bot.send_document(chat_id, it["file_id"], protect_content=is_protected, caption=caption)
+                            
+                            if del_min > 0:
+                                schedule_auto_delete(chat_id, sent_msg.message_id, del_min)
+                            time.sleep(0.3)
+                        except Exception as e:
+                            print(f"File send error: {e}")
             return
 
         bot.send_message(
             chat_id,
             "👋 <b>স্বাগতম Smart Link Shortener বটে!</b>\n\n"
-            "যে কোনো বড় লিংক, ফাইল, ভিডিও অথবা একাধিক ছবি পাঠান। বট তাৎক্ষণিক একটি সুরক্ষিত মাল্টি-স্টেপ শর্ট লিংক তৈরি করে দেবে।"
+            "আপনি চাইলে একটি বা <b>একসাথে অনেকগুলো ভিডিও/ফাইল</b> ফরওয়ার্ড করতে পারেন। বট স্বয়ংক্রিয়ভাবে সেগুলোকে একটি ব্যাচে নিয়ে সিঙ্গেল শর্ট লিংক তৈরি করে দেবে।"
         )
 
-    # কলব্যাক কুয়েরি (Post to Channel এবং Protect টগল)
+    # কলব্যাক কুয়েরি হ্যান্ডলার
     @bot.callback_query_handler(func=lambda call: True)
     def handle_callbacks(call):
         data = call.data
         chat_id = call.message.chat.id
         settings = get_settings()
 
+        # ব্যাচে আরও ফাইল অ্যাড করার অপশন
+        if data == "batch_add_more":
+            with BATCH_LOCK:
+                if chat_id in USER_BATCHES:
+                    USER_BATCHES[chat_id]["is_waiting_more"] = True
+            bot.answer_callback_query(call.id, "➕ আরও ফাইল পাঠান...")
+            bot.send_message(chat_id, "📥 <b>এখন আরও যতগুলো ভিডিও/ফাইল চান পাঠান। সব পাঠানো হলে নিচে Done চাপুন।</b>", reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("✅ Done (Create Link)", callback_data="batch_done")))
+
+        # ব্যাচ সম্পূর্ণ করে লিংক তৈরি করা
+        elif data == "batch_done":
+            bot.answer_callback_query(call.id, "⏳ লিংক তৈরি হচ্ছে...")
+            bot.delete_message(chat_id, call.message.message_id)
+            finalize_batch_link(chat_id)
+
         # চ্যানেলে অটো-পোস্ট করা
-        if data.startswith("post_"):
+        elif data.startswith("post_"):
             code = data.replace("post_", "")
             link = sync_db.links.find_one({"short_code": code})
             if not link:
@@ -204,7 +268,7 @@ def init_bot(app, sync_db, config):
             except Exception as e:
                 bot.answer_callback_query(call.id, f"পোস্ট ব্যর্থ: {str(e)}", show_alert=True)
 
-        # ফরওয়ার্ড প্রটেক্ট টগল করা
+        # ফরওয়ার্ড প্রটেক্ট টগল
         elif data.startswith("tog_"):
             code = data.replace("tog_", "")
             link = sync_db.links.find_one({"short_code": code})
@@ -213,8 +277,7 @@ def init_bot(app, sync_db, config):
                 sync_db.links.update_one({"_id": link["_id"]}, {"$set": {"protect_content": new_state}})
                 short_url = f"{settings['base_url'].rstrip('/')}/s/{code}"
                 title = link.get("metadata", {}).get("name", "Content")
-                
-                # বাটন টেক্সট আপডেট
+
                 markup = types.InlineKeyboardMarkup(row_width=2)
                 btn_channel = types.InlineKeyboardButton("📢 Post to Channel", callback_data=f"post_{code}")
                 btn_protect = types.InlineKeyboardButton(f"🛡️ Protect: {'ON' if new_state else 'OFF'}", callback_data=f"tog_{code}")
@@ -226,37 +289,14 @@ def init_bot(app, sync_db, config):
                 bot.edit_message_reply_markup(chat_id, call.message.message_id, reply_markup=markup)
                 bot.answer_callback_query(call.id, f"Protection is now {'ON' if new_state else 'OFF'}")
 
-    # ফাইল, ভিডিও ও ফটো ইনপুট
+    # মিডিয়া ফাইল হ্যান্ডলার (ভিডিও, ডকুমেন্ট, ফটো)
     @bot.message_handler(content_types=['document', 'video', 'photo', 'audio'])
-    def handle_media(message):
+    def handle_incoming_media(message):
         chat_id = message.chat.id
-        media_group_id = message.media_group_id
 
-        # অ্যালবাম ডিটেকশন
-        if media_group_id:
-            file_id = ""
-            ftype = "photo"
-            if message.photo:
-                file_id = message.photo[-1].file_id
-                ftype = "photo"
-            elif message.video:
-                file_id = message.video.file_id
-                ftype = "video"
-            elif message.document:
-                file_id = message.document.file_id
-                ftype = "document"
-
-            with ALBUM_LOCK:
-                if media_group_id not in ALBUM_CACHE:
-                    ALBUM_CACHE[media_group_id] = {"items": [], "chat_id": chat_id}
-                    threading.Thread(target=flush_album, args=(media_group_id, chat_id), daemon=True).start()
-                ALBUM_CACHE[media_group_id]["items"].append({"file_id": file_id, "file_type": ftype})
-            return
-
-        # সিঙ্গেল মিডিয়া
         file_id = ""
         file_type = "file"
-        file_name = "Direct File Asset"
+        file_name = "Media Asset"
 
         if message.video:
             file_id = message.video.file_id
@@ -271,27 +311,28 @@ def init_bot(app, sync_db, config):
             file_type = "photo"
             file_name = "photo.jpg"
 
-        from app import generate_unique_code_sync
-        code = generate_unique_code_sync()
-        settings = get_settings()
+        # ইউজার ব্যাচে ফাইল যুক্ত করা
+        with BATCH_LOCK:
+            if chat_id not in USER_BATCHES:
+                USER_BATCHES[chat_id] = {"items": [], "is_waiting_more": False}
+            
+            USER_BATCHES[chat_id]["items"].append({
+                "file_id": file_id,
+                "file_type": file_type,
+                "name": file_name
+            })
 
-        link_doc = {
-            "short_code": code,
-            "destination": file_id,
-            "destination_type": "telegram_file",
-            "metadata": {"file_id": file_id, "file_type": file_type, "name": file_name},
-            "created_by": f"tg_{chat_id}",
-            "created_at": datetime.now(timezone.utc),
-            "status": "Active",
-            "protect_content": settings["protect_content"],
-            "clicks": 0,
-            "step_views": 0,
-            "final_clicks": 0
-        }
-        sync_db.links.insert_one(link_doc)
+            # যদি নতুন ফাইল পাঠানো হয়, তাহলে আগের টাইমার বাতিল করে নতুন করে কাউন্টডাউন
+            if chat_id in BATCH_TIMERS:
+                try:
+                    BATCH_TIMERS[chat_id].cancel()
+                except Exception:
+                    pass
 
-        short_url = f"{settings['base_url'].rstrip('/')}/s/{code}"
-        send_creation_response(chat_id, file_name, short_url, code, settings["protect_content"])
+            # ১.২ সেকেন্ড অপেক্ষা করে বাটন শো করার থ্রেড
+            timer = threading.Timer(1.2, show_batch_controls, args=[chat_id])
+            BATCH_TIMERS[chat_id] = timer
+            timer.start()
 
     # সাধারণ টেক্সট URL শর্ট করা
     @bot.message_handler(func=lambda msg: msg.text and msg.text.startswith(("http://", "https://")))
