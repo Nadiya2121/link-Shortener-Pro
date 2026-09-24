@@ -11,8 +11,15 @@ BATCH_TIMERS = {}
 BATCH_LOCK = threading.Lock()
 CHANNEL_POST_STATE = {}
 
+# 🌟 ইন-মেমোরি ফাস্ট ক্যাশ (হাজার ইউজারের চাপের সময় ডাটাবেজ স্লো হওয়া বাঁচায়)
+FILE_CACHE = {}
+
 def init_bot(app, sync_db, config):
     bot = telebot.TeleBot(config["BOT_TOKEN"], parse_mode="HTML", threaded=True)
+    admin_ids = config.get("ADMIN_IDS", [5370676246])
+
+    def is_admin(user_id):
+        return user_id in admin_ids
 
     def get_settings():
         settings = sync_db.settings.find_one({"type": "global"})
@@ -32,7 +39,6 @@ def init_bot(app, sync_db, config):
             "tutorial_url": settings.get("tutorial_url", "")
         }
 
-    # অন্যের নাম/লিংক মুছে ফেলার স্মার্ট ক্লিনার
     def clean_brand_text(text):
         if not text:
             return "Exclusive Content"
@@ -42,7 +48,6 @@ def init_bot(app, sync_db, config):
         text = re.sub(r'\s+', ' ', text).strip()
         return text if len(text) > 2 else "Exclusive Content"
 
-    # ইনবক্স থেকে ফাইল অটোমেটিক ডিলিট করার ব্যাকগ্রাউন্ড টাস্ক
     def schedule_auto_delete(chat_id, message_id, minutes):
         if minutes <= 0:
             return
@@ -62,7 +67,6 @@ def init_bot(app, sync_db, config):
 
         threading.Thread(target=delete_worker, daemon=True).start()
 
-    # লিংক তৈরি শেষে অ্যাকশন বাটন সহ মেসেজ প্রদান
     def send_creation_response(chat_id, title, short_url, code, protect_status):
         markup = types.InlineKeyboardMarkup(row_width=2)
         btn_channel = types.InlineKeyboardButton("📢 Post to Channel", callback_data=f"postinit_{code}")
@@ -81,7 +85,6 @@ def init_bot(app, sync_db, config):
             reply_markup=markup
         )
 
-    # চূড়ান্ত ব্যাচ লিংক জেনারেট করার ইঞ্জিন
     def finalize_batch_link(chat_id):
         with BATCH_LOCK:
             batch = USER_BATCHES.pop(chat_id, None)
@@ -112,6 +115,7 @@ def init_bot(app, sync_db, config):
                 "final_clicks": 0
             }
             sync_db.links.insert_one(link_doc)
+            FILE_CACHE[code] = link_doc
             short_url = f"{settings['base_url'].rstrip('/')}/s/{code}"
             send_creation_response(chat_id, it["name"], short_url, code, settings["protect_content"])
         else:
@@ -138,10 +142,10 @@ def init_bot(app, sync_db, config):
                 "final_clicks": 0
             }
             sync_db.links.insert_one(link_doc)
+            FILE_CACHE[code] = link_doc
             short_url = f"{settings['base_url'].rstrip('/')}/s/{code}"
             send_creation_response(chat_id, f"{clean_batch_name} ({len(items)} Files)", short_url, code, settings["protect_content"])
 
-    # ফাইল আসা শেষ হলে Add More / Done বাটন দেখানো
     def show_batch_controls(chat_id):
         time.sleep(1.2)
         with BATCH_LOCK:
@@ -162,28 +166,32 @@ def init_bot(app, sync_db, config):
             reply_markup=markup
         )
 
-    # 🌟 ১. /start কমান্ড ও ইউজার ট্র্যাকিং
+    # /start কমান্ড হ্যান্ডলার
     @bot.message_handler(commands=['start'])
     def handle_start(message):
         chat_id = message.chat.id
         from_user = message.from_user
         text = message.text or ""
 
-        # ডেটাবেজে ইউজার ট্র্যাক রাখা (ব্রডকাস্টের জন্য)
-        sync_db.bot_users.update_one(
-            {"user_id": from_user.id},
-            {"$set": {
-                "name": from_user.first_name,
-                "username": from_user.username,
-                "last_active": datetime.now(timezone.utc)
-            }},
-            upsert=True
-        )
+        # ইউজার ট্র্যাকিং (ব্যাকগ্রাউন্ডে)
+        def track_user():
+            sync_db.bot_users.update_one(
+                {"user_id": from_user.id},
+                {"$set": {
+                    "name": from_user.first_name,
+                    "username": from_user.username,
+                    "last_active": datetime.now(timezone.utc)
+                }},
+                upsert=True
+            )
+        threading.Thread(target=track_user, daemon=True).start()
 
-        # যদি ইউজার শর্ট লিংক আনলক করে ফাইল নিতে আসে
+        # ফাইল আনলক করে ডেলিভারি নেওয়া (০.০৫ সেকেন্ডের ফাস্ট ক্যাশ ডেলিভারি)
         if len(text.split()) > 1 and text.split()[1].startswith("unlock_"):
             code = text.split()[1].replace("unlock_", "")
-            link = sync_db.links.find_one({"short_code": code})
+
+            # ক্যাশ থেকে খোঁজা
+            link = FILE_CACHE.get(code) or sync_db.links.find_one({"short_code": code})
             if not link:
                 bot.send_message(chat_id, "❌ <b>দুঃখিত! ফাইলটি পাওয়া যায়নি বা মেয়াদ শেষ হয়ে গেছে।</b>")
                 return
@@ -233,18 +241,22 @@ def init_bot(app, sync_db, config):
                                 schedule_auto_delete(chat_id, sent_msg.message_id, del_min)
                             time.sleep(0.3)
                         except Exception as e:
-                            print(f"File delivery error: {e}")
+                            print(f"Delivery Error: {e}")
             return
 
         bot.send_message(
             chat_id,
             "👋 <b>স্বাগতম Smart Link Shortener বটে!</b>\n\n"
-            "আপনি চাইলে একটি বা <b>একসাথে অনেকগুলো ভিডিও/ফাইল</b> ফরওয়ার্ড করতে পারেন। বট অন্যের সব নাম-লিংক মুছে ফেলে সম্পূর্ণ ক্লিন শর্ট লিংক তৈরি করে দেবে।"
+            "যেকোনো ভিডিও বা ফাইল আনলক করতে লিংকে ক্লিক করুন।"
         )
 
-    # 🌟 ২. ইউজার স্ট্যাটাস দেখার অ্যাডমিন কমান্ড (/stats)
+    # 🔒 কঠোর অ্যাডমিন চেক: /stats (অন্য কেউ ব্যবহার করতে পারবে না)
     @bot.message_handler(commands=['stats'])
     def handle_stats(message):
+        if not is_admin(message.from_user.id):
+            bot.send_message(message.chat.id, "⛔ <b>দুঃখিত! এই কমান্ডটি শুধু অ্যাডমিনের জন্য সংরক্ষিত।</b>")
+            return
+
         total_users = sync_db.bot_users.count_documents({})
         total_links = sync_db.links.count_documents({})
         total_albums = sync_db.albums.count_documents({})
@@ -257,9 +269,13 @@ def init_bot(app, sync_db, config):
             f"📦 মোট ব্যাচ অ্যালবাম: <b>{total_albums:,}</b> টি"
         )
 
-    # 🌟 ৩. টিউটোরিয়াল ভিডিওর লিংক সেট করার কমান্ড (/settutorial)
+    # 🔒 কঠোর অ্যাডমিন চেক: /settutorial
     @bot.message_handler(commands=['settutorial'])
     def set_tutorial_cmd(message):
+        if not is_admin(message.from_user.id):
+            bot.send_message(message.chat.id, "⛔ <b>দুঃখিত! এই কমান্ডটি শুধু অ্যাডমিনের জন্য সংরক্ষিত।</b>")
+            return
+
         parts = message.text.split(maxsplit=1)
         if len(parts) < 2:
             bot.send_message(message.chat.id, "❌ নিয়ম: <code>/settutorial https://t.me/your_tutorial_link</code> এভাবে দিন।")
@@ -269,12 +285,16 @@ def init_bot(app, sync_db, config):
         sync_db.settings.update_one({"type": "global"}, {"$set": {"tutorial_url": tut_url}}, upsert=True)
         bot.send_message(message.chat.id, f"✅ <b>টিউটোরিয়াল বাটন লিংক সেট করা হয়েছে:</b>\n{tut_url}")
 
-    # 🌟 ৪. সমস্ত ইউজারের কাছে মেসেজ পাঠানো (/broadcast)
+    # 🔒 কঠোর অ্যাডমিন চেক: /broadcast
     @bot.message_handler(commands=['broadcast'])
     def handle_broadcast(message):
+        if not is_admin(message.from_user.id):
+            bot.send_message(message.chat.id, "⛔ <b>দুঃখিত! এই কমান্ডটি শুধু অ্যাডমিনের জন্য সংরক্ষিত।</b>")
+            return
+
         parts = message.text.split(maxsplit=1)
         if len(parts) < 2 and not message.reply_to_message:
-            bot.send_message(message.chat.id, "❌ নিয়ম: <code>/broadcast আপনার মেসেজ এখানে লিখুন</code> (অথবা কোনো মেসেজে রিপ্লাই দিয়ে /broadcast লিখুন)")
+            bot.send_message(message.chat.id, "❌ নিয়ম: <code>/broadcast আপনার মেসেজ এখানে লিখুন</code>")
             return
 
         broadcast_text = parts[1] if len(parts) > 1 else message.reply_to_message.text
@@ -290,7 +310,7 @@ def init_bot(app, sync_db, config):
                 try:
                     bot.send_message(u["user_id"], broadcast_text)
                     success += 1
-                    time.sleep(0.05)  # টেলিগ্রাম রেট লিমিট প্রটেকশন
+                    time.sleep(0.04)
                 except Exception:
                     failed += 1
 
@@ -298,7 +318,7 @@ def init_bot(app, sync_db, config):
                 message.chat.id,
                 f"🎉 <b>ব্রডকাস্ট সম্পন্ন হয়েছে!</b>\n\n"
                 f"✅ সফল: {success} জন\n"
-                f"❌ ব্যর্থ (ব্লক করেছে): {failed} জন"
+                f"❌ ব্লক করেছে: {failed} জন"
             )
 
         threading.Thread(target=broadcast_worker, daemon=True).start()
@@ -310,8 +330,11 @@ def init_bot(app, sync_db, config):
         chat_id = call.message.chat.id
         settings = get_settings()
 
-        # ১. চ্যানেলে পোস্ট অপশন পছন্দ করা
         if data.startswith("postinit_"):
+            if not is_admin(call.from_user.id):
+                bot.answer_callback_query(call.id, "⛔ আপনি অ্যাডমিন নন!", show_alert=True)
+                return
+
             code = data.replace("postinit_", "")
             markup = types.InlineKeyboardMarkup(row_width=2)
             btn_quick = types.InlineKeyboardButton("⚡ Quick Post", callback_data=f"qpost_{code}")
@@ -327,8 +350,10 @@ def init_bot(app, sync_db, config):
             )
             bot.answer_callback_query(call.id)
 
-        # ২. কুইক পোস্ট (ডাবল বাটন: Download + How to Watch)
         elif data.startswith("qpost_"):
+            if not is_admin(call.from_user.id):
+                return
+
             code = data.replace("qpost_", "")
             link = sync_db.links.find_one({"short_code": code})
             channel_target = settings.get("channel_id")
@@ -343,7 +368,6 @@ def init_bot(app, sync_db, config):
             markup = types.InlineKeyboardMarkup(row_width=2)
             btn_watch = types.InlineKeyboardButton("📥 Download / Watch", url=short_url)
             
-            # টিউটোরিয়াল বাটন যুক্ত করা
             if settings.get("tutorial_url"):
                 btn_tut = types.InlineKeyboardButton("❓ How to Watch?", url=settings["tutorial_url"])
                 markup.add(btn_watch, btn_tut)
@@ -356,8 +380,10 @@ def init_bot(app, sync_db, config):
             except Exception as e:
                 bot.answer_callback_query(call.id, f"এরর: {str(e)}", show_alert=True)
 
-        # ৩. কাস্টম পোস্টার পোস্ট শুরু
         elif data.startswith("cpost_"):
+            if not is_admin(call.from_user.id):
+                return
+
             code = data.replace("cpost_", "")
             CHANNEL_POST_STATE[chat_id] = {
                 "step": "AWAIT_POSTER",
@@ -366,22 +392,25 @@ def init_bot(app, sync_db, config):
             bot.send_message(chat_id, "📸 <b>চ্যানেলে যে পোস্টার/ছবিটি পাঠাতে চান, সেই ছবিটি সেন্ড করুন:</b>")
             bot.answer_callback_query(call.id)
 
-        # ৪. ব্যাচে আরও ফাইল অ্যাড করা
         elif data == "batch_add_more":
+            if not is_admin(call.from_user.id):
+                return
             with BATCH_LOCK:
                 if chat_id in USER_BATCHES:
                     USER_BATCHES[chat_id]["is_waiting_more"] = True
             bot.answer_callback_query(call.id, "➕ আরও ফাইল পাঠান...")
             bot.send_message(chat_id, "📥 <b>আরও যতগুলো ফাইল চান পাঠান। সব পাঠানো শেষ হলে নিচে Done চাপুন।</b>", reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("✅ Done (Create Link)", callback_data="batch_done")))
 
-        # ৫. ব্যাচ লিংক তৈরি সম্পন্ন করা
         elif data == "batch_done":
+            if not is_admin(call.from_user.id):
+                return
             bot.answer_callback_query(call.id, "⏳ লিংক তৈরি হচ্ছে...")
             bot.delete_message(chat_id, call.message.message_id)
             finalize_batch_link(chat_id)
 
-        # ৬. ফরওয়ার্ড প্রোটেকশন টগল
         elif data.startswith("tog_"):
+            if not is_admin(call.from_user.id):
+                return
             code = data.replace("tog_", "")
             link = sync_db.links.find_one({"short_code": code})
             if link:
@@ -401,11 +430,13 @@ def init_bot(app, sync_db, config):
                 bot.edit_message_reply_markup(chat_id, call.message.message_id, reply_markup=markup)
                 bot.answer_callback_query(call.id, f"Protection is now {'ON' if new_state else 'OFF'}")
 
-    # কাস্টম পোস্টার ছবি ও ক্যাপশন রিসিভার
+    # কাস্টম পোস্টার রিসিভার
     @bot.message_handler(content_types=['photo'])
     def handle_poster_photo(message):
         chat_id = message.chat.id
         if chat_id in CHANNEL_POST_STATE and CHANNEL_POST_STATE[chat_id].get("step") == "AWAIT_POSTER":
+            if not is_admin(message.from_user.id):
+                return
             CHANNEL_POST_STATE[chat_id]["photo_id"] = message.photo[-1].file_id
             CHANNEL_POST_STATE[chat_id]["step"] = "AWAIT_CAPTION"
             bot.send_message(chat_id, "✍️ <b>পোস্টের জন্য একটি আকর্ষণীয় টাইটেল/ক্যাপশন লিখে পাঠান (বা স্কিপ করতে /skip লিখুন):</b>")
@@ -416,6 +447,9 @@ def init_bot(app, sync_db, config):
     @bot.message_handler(func=lambda msg: msg.chat.id in CHANNEL_POST_STATE and CHANNEL_POST_STATE[msg.chat.id].get("step") == "AWAIT_CAPTION")
     def handle_custom_caption(message):
         chat_id = message.chat.id
+        if not is_admin(message.from_user.id):
+            return
+
         data = CHANNEL_POST_STATE.pop(chat_id)
         settings = get_settings()
 
@@ -427,13 +461,11 @@ def init_bot(app, sync_db, config):
         code = data["code"]
         photo_id = data["photo_id"]
         short_url = f"{settings['base_url'].rstrip('/')}/s/{code}"
-
         caption_text = message.text.strip() if message.text != "/skip" else "🔥 New Exclusive Content Available Now!"
 
         markup = types.InlineKeyboardMarkup(row_width=2)
         btn_watch = types.InlineKeyboardButton("📥 Download / Watch (HD)", url=short_url)
         
-        # 🌟 টিউটোরিয়াল বাটন যুক্ত করা
         if settings.get("tutorial_url"):
             btn_tut = types.InlineKeyboardButton("❓ How to Watch?", url=settings["tutorial_url"])
             markup.add(btn_watch, btn_tut)
@@ -451,10 +483,13 @@ def init_bot(app, sync_db, config):
         except Exception as e:
             bot.send_message(chat_id, f"❌ চ্যানেলে পোস্ট ব্যর্থ: {str(e)}")
 
-    # মিডিয়া ফাইল হ্যান্ডলার
+    # 🔒 শুধুমাত্র অ্যাডমিন ফাইল/ভিডিও শর্ট করতে পারবে
     @bot.message_handler(content_types=['document', 'video', 'audio'])
     def handle_incoming_media(message):
         chat_id = message.chat.id
+        if not is_admin(message.from_user.id):
+            bot.send_message(chat_id, "⛔ <b>দুঃখিত! শুধুমাত্র অ্যাডমিন বটে ফাইল আপলোড করতে পারেন।</b>")
+            return
 
         file_id = ""
         file_type = "file"
@@ -495,10 +530,14 @@ def init_bot(app, sync_db, config):
             BATCH_TIMERS[chat_id] = timer
             timer.start()
 
-    # টেক্সট URL শর্ট করা
+    # টেক্সট URL শর্ট করা (শুধু অ্যাডমিন)
     @bot.message_handler(func=lambda msg: msg.text and msg.text.startswith(("http://", "https://")))
     def handle_url(message):
         chat_id = message.chat.id
+        if not is_admin(message.from_user.id):
+            bot.send_message(chat_id, "⛔ <b>শুধুমাত্র অ্যাডমিন লিংক শর্ট করতে পারেন।</b>")
+            return
+
         from app import generate_unique_code_sync
         code = generate_unique_code_sync()
         settings = get_settings()
@@ -517,21 +556,21 @@ def init_bot(app, sync_db, config):
             "final_clicks": 0
         }
         sync_db.links.insert_one(link_doc)
+        FILE_CACHE[code] = link_doc
 
         short_url = f"{settings['base_url'].rstrip('/')}/s/{code}"
         send_creation_response(chat_id, "Standard Web URL", short_url, code, False)
 
-    # ব্যাকগ্রাউন্ড পোলিং থ্রেড
-    def run_polling():
+    # 🌟 অটোমেটিক Webhook সেট করা (Polling বন্ধ)
+    def setup_webhook():
+        time.sleep(2)
+        webhook_url = f"{config['BASE_URL'].rstrip('/')}/api/telegram/webhook"
         try:
             bot.remove_webhook()
-        except Exception:
-            pass
-        while True:
-            try:
-                bot.infinity_polling(skip_pending=True, timeout=20)
-            except Exception:
-                time.sleep(3)
+            bot.set_webhook(url=webhook_url, drop_pending_updates=True)
+            print(f"🚀 Telegram Webhook Successfully Linked to: {webhook_url}")
+        except Exception as e:
+            print(f"Webhook setup error: {e}")
 
-    threading.Thread(target=run_polling, daemon=True).start()
-    print("🤖 Telegram Bot Ingress Engine Started!")
+    threading.Thread(target=setup_webhook, daemon=True).start()
+    return bot
