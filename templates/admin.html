@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Hub - Pom Pom Links</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="bg-[#090810] text-gray-200 font-sans pb-20 select-none">
+
+  <!-- ১. লগইন সেকশন -->
+  {% if mode == 'login' %}
+  <div class="min-h-screen flex items-center justify-center p-4">
+    <div class="bg-[#131120] border border-gray-800 p-8 rounded-3xl w-full max-w-sm text-center shadow-2xl">
+      <div class="w-16 h-16 bg-rose-500/10 text-rose-500 rounded-2xl flex items-center justify-center mx-auto mb-4 text-2xl">
+        <i class="fa-solid fa-lock"></i>
+      </div>
+      <h2 class="text-2xl font-black text-white mb-1">Admin Panel</h2>
+      <p class="text-xs text-gray-400 mb-6">প্রবেশ করতে ক্রেডেনশিয়াল প্রদান করুন</p>
+      <form method="POST" action="/admin/login" class="space-y-4 text-left">
+        <div>
+          <label class="text-[11px] text-gray-400 block mb-1">ইউজারনেম</label>
+          <input type="text" name="username" required class="w-full bg-[#1c192e] border border-gray-700 rounded-xl px-4 py-3 text-xs text-white focus:outline-none">
+        </div>
+        <div>
+          <label class="text-[11px] text-gray-400 block mb-1">পাসওয়ার্ড</label>
+          <input type="password" name="password" required class="w-full bg-[#1c192e] border border-gray-700 rounded-xl px-4 py-3 text-xs text-white focus:outline-none">
+        </div>
+        <button type="submit" class="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold py-3 rounded-xl text-xs shadow-lg transition">প্রবেশ করুন</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ২. মূল ড্যাশবোর্ড সেকশন -->
+  {% elif mode == 'dashboard' %}
+  <div class="max-w-6xl mx-auto p-4 sm:p-6">
+    <header class="flex justify-between items-center py-5 border-b border-gray-800/80 mb-8">
+      <div>
+        <h1 class="text-2xl font-black bg-gradient-to-r from-rose-500 to-amber-400 bg-clip-text text-transparent">
+          Link Gateway Control Hub
+        </h1>
+        <p class="text-xs text-gray-400">টেলিগ্রাম ফাইল লকার ও মাল্টি-স্টেপ মনিটাইজার</p>
+      </div>
+      <a href="/admin/logout" class="text-xs bg-red-600/20 text-red-400 border border-red-500/30 px-3 py-2 rounded-xl font-bold">লগআউট</a>
+    </header>
+
+    <!-- অ্যানালিটিক্স -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+      <div class="bg-[#131120] border border-gray-800 p-4 rounded-2xl">
+        <p class="text-[11px] text-gray-400">মোট লিংক</p>
+        <h3 class="text-2xl font-black text-rose-500 mt-1">{{ stats.total_links }}</h3>
+      </div>
+      <div class="bg-[#131120] border border-gray-800 p-4 rounded-2xl">
+        <p class="text-[11px] text-gray-400">মোট ক্লিক</p>
+        <h3 class="text-2xl font-black text-amber-400 mt-1">{{ stats.total_clicks }}</h3>
+      </div>
+      <div class="bg-[#131120] border border-gray-800 p-4 rounded-2xl">
+        <p class="text-[11px] text-gray-400">আজকের ক্লিক</p>
+        <h3 class="text-2xl font-black text-emerald-400 mt-1">{{ stats.today_clicks }}</h3>
+      </div>
+      <div class="bg-[#131120] border border-gray-800 p-4 rounded-2xl">
+        <p class="text-[11px] text-gray-400">গতকালের ক্লিক</p>
+        <h3 class="text-2xl font-black text-blue-400 mt-1">{{ stats.yesterday_clicks }}</h3>
+      </div>
+    </div>
+
+    <!-- গ্লোবাল সেটিংস ও চ্যানেল আইডি -->
+    <div class="bg-[#131120] border border-gray-800 p-6 rounded-3xl mb-8">
+      <h3 class="font-bold text-sm text-rose-400 mb-4 flex items-center gap-2">
+        <i class="fa-solid fa-gears"></i> মাস্টার সেটিংস ও চ্যানেল অটো-পোস্ট কনফিগ
+      </h3>
+      <form method="POST" action="/api/admin/settings" class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div>
+          <label class="text-[11px] text-gray-400 block mb-1">ওয়েবসাইট ব্র্যান্ড নাম:</label>
+          <input type="text" name="site_name" value="{{ settings.site_name }}" class="w-full bg-[#1c192e] border border-gray-700 rounded-xl px-3 py-2 text-xs text-white">
+        </div>
+        <div>
+          <label class="text-[11px] text-gray-400 block mb-1">বেস ডোমেইন (Render / Custom URL):</label>
+          <input type="url" name="base_url" value="{{ settings.base_url }}" class="w-full bg-[#1c192e] border border-gray-700 rounded-xl px-3 py-2 text-xs text-white">
+        </div>
+        <div>
+          <label class="text-[11px] text-gray-400 block mb-1">টেলিগ্রাম চ্যানেল আইডি (যেমন: @Channel বা -100..):</label>
+          <input type="text" name="channel_id" value="{{ settings.channel_id }}" placeholder="@MyChannel" class="w-full bg-[#1c192e] border border-gray-700 rounded-xl px-3 py-2 text-xs text-white">
+        </div>
+        <div>
+          <label class="text-[11px] text-gray-400 block mb-1">ইনবক্স অটো-ডিলিট (মিনিট):</label>
+          <input type="number" name="auto_delete_minutes" value="{{ settings.auto_delete_minutes }}" class="w-full bg-[#1c192e] border border-gray-700 rounded-xl px-3 py-2 text-xs text-white">
+        </div>
+        <div class="flex items-center gap-2 pt-5">
+          <input type="checkbox" name="protect_content" value="true" {% if settings.protect_content %}checked{% endif %} id="chkProtect">
+          <label for="chkProtect" class="text-xs text-gray-300">ডিফল্ট ফরওয়ার্ড প্রটেক্ট ON</label>
+        </div>
+        <div class="flex items-center gap-2 pt-5">
+          <input type="checkbox" name="public_shortener" value="true" {% if settings.public_shortener %}checked{% endif %} id="chkPub">
+          <label for="chkPub" class="text-xs text-gray-300">পাবলিক শর্টনার চালু রাখুন</label>
+        </div>
+        <div class="sm:col-span-3 pt-2">
+          <button type="submit" class="bg-rose-600 hover:bg-rose-700 text-xs px-5 py-2.5 rounded-xl font-bold">সেটিংস সেভ করুন</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- স্টেপ ম্যানেজার -->
+    <div class="bg-[#131120] border border-gray-800 p-6 rounded-3xl mb-8">
+      <h3 class="font-bold text-sm text-amber-400 mb-4 flex items-center gap-2">
+        <i class="fa-solid fa-layer-group"></i> মাল্টি-স্টেপ রিডাইরেক্ট কনফিগারেশন
+      </h3>
+      <form method="POST" action="/api/admin/steps/add" class="grid grid-cols-1 sm:grid-cols-5 gap-3 mb-6">
+        <input type="text" name="name" placeholder="রেফারেন্স নাম" required class="bg-[#1c192e] border border-gray-700 rounded-xl px-3 py-2 text-xs text-white">
+        <input type="text" name="title" placeholder="ইউজার টাইটেল" required class="bg-[#1c192e] border border-gray-700 rounded-xl px-3 py-2 text-xs text-white">
+        <input type="text" name="description" placeholder="নির্দেশনা টেক্সট" required class="bg-[#1c192e] border border-gray-700 rounded-xl px-3 py-2 text-xs text-white">
+        <input type="number" name="timer" placeholder="টাইমার (সেকেন্ড)" value="7" required class="bg-[#1c192e] border border-gray-700 rounded-xl px-3 py-2 text-xs text-white">
+        <button type="submit" class="bg-amber-500 hover:bg-amber-600 text-black font-bold text-xs px-4 py-2 rounded-xl">+ Add Step</button>
+      </form>
+      <div class="space-y-2">
+        {% for s in steps %}
+        <div class="flex justify-between items-center bg-[#1c192e] px-4 py-2.5 rounded-xl text-xs">
+          <div>
+            <b>{{ s.order }}. {{ s.name }}</b> — {{ s.title }} ({{ s.timer }}s)
+          </div>
+          <form method="POST" action="/api/admin/steps/delete/{{ s._id }}">
+            <button type="submit" class="text-red-400 hover:text-red-300">✕ Delete</button>
+          </form>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- ডিরেক্ট লিংক রোটেটর -->
+    <div class="bg-[#131120] border border-gray-800 p-6 rounded-3xl mb-8">
+      <h3 class="font-bold text-sm text-purple-400 mb-4 flex items-center gap-2">
+        <i class="fa-solid fa-shuffle"></i> আনলিমিটেড ডিরেক্ট অ্যাড লিংক পুল
+      </h3>
+      <form method="POST" action="/api/admin/direct/add" class="flex flex-col sm:flex-row gap-3 mb-6">
+        <input type="text" name="name" placeholder="ক্যাম্পেইন/অ্যাড নেটওয়ার্ক" required class="bg-[#1c192e] border border-gray-700 rounded-xl px-3 py-2 text-xs text-white">
+        <input type="url" name="url" placeholder="https://ad-network.com/direct-link..." required class="flex-1 bg-[#1c192e] border border-gray-700 rounded-xl px-3 py-2 text-xs text-white">
+        <input type="number" name="weight" placeholder="Weight" value="1" class="w-20 bg-[#1c192e] border border-gray-700 rounded-xl px-3 py-2 text-xs text-white">
+        <button type="submit" class="bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs px-5 py-2 rounded-xl">Add Link</button>
+      </form>
+      <div class="space-y-2">
+        {% for dl in direct_links %}
+        <div class="flex justify-between items-center bg-[#1c192e] px-4 py-2.5 rounded-xl text-xs">
+          <div class="truncate max-w-md"><b>{{ dl.name }}</b>: {{ dl.url }} ({{ dl.clicks }} clicks)</div>
+          <form method="POST" action="/api/admin/direct/delete/{{ dl._id }}">
+            <button type="submit" class="text-red-400 hover:text-red-300">✕</button>
+          </form>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- লিংক হিস্ট্রি -->
+    <div class="bg-[#131120] border border-gray-800 p-6 rounded-3xl">
+      <h3 class="font-bold text-sm text-gray-200 mb-4 flex items-center gap-2">
+        <i class="fa-solid fa-list"></i> সাম্প্রতিক শর্ট লিংক সমূহ
+      </h3>
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs">
+          <thead>
+            <tr class="border-b border-gray-800 text-gray-400">
+              <th class="py-2.5 px-3">Code</th>
+              <th class="py-2.5 px-3">Type</th>
+              <th class="py-2.5 px-3">Clicks</th>
+              <th class="py-2.5 px-3">Action</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-800/40">
+            {% for l in links %}
+            <tr>
+              <td class="py-2.5 px-3 font-mono text-rose-400">/s/{{ l.short_code }}</td>
+              <td class="py-2.5 px-3 uppercase">{{ l.destination_type }}</td>
+              <td class="py-2.5 px-3">{{ l.clicks }}</td>
+              <td class="py-2.5 px-3">
+                <form method="POST" action="/api/admin/links/delete/{{ l.short_code }}">
+                  <button type="submit" class="text-red-400 hover:text-red-300">Delete</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+  {% endif %}
+
+</body>
+</html>
