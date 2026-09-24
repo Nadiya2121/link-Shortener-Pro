@@ -14,82 +14,106 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, HttpUrl
 from itsdangerous import URLSafeTimedSerializer
 
-# কনফিগ হ্যান্ডলিং
+# ========================================================
+# কনফিগারেশন ও অটোমেটিক ক্লিন লিঙ্ক হ্যান্ডলার
+# ========================================================
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
-MONGO_URI = os.getenv("MONGO_URI", "").strip()
-SECRET_KEY = os.getenv("SECRET_KEY", "smart_secret_link_key_2026")
+
+# আপনার আসল মঙ্গোডিবি লিঙ্ক (অটো-ক্লিন সহ)
+DEFAULT_MONGO = "mongodb+srv://MovieLinkbd:MovieLinkbd@cluster0.cmx4zn5.mongodb.net/smart_shortener?retryWrites=true&w=majority"
+raw_mongo = os.getenv("MONGO_URI", "").strip()
+
+if raw_mongo and (raw_mongo.startswith("mongodb://") or raw_mongo.startswith("mongodb+srv://")):
+    MONGO_URI = raw_mongo
+else:
+    MONGO_URI = DEFAULT_MONGO
+
+SECRET_KEY = os.getenv("SECRET_KEY", "smart_secret_link_key_2026").strip()
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin").strip()
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123").strip()
 BASE_URL = os.getenv("BASE_URL", "http://localhost:8000").rstrip("/")
 PORT = int(os.getenv("PORT", "8000"))
 
-# সিকিউরিটি সিরিয়ালাইজার
+# সিকিউরিটি সাইনার
 step_signer = URLSafeTimedSerializer(SECRET_KEY, salt="step-clearance")
 admin_signer = URLSafeTimedSerializer(SECRET_KEY, salt="admin-session")
 
-# ডাটাবেজ ক্লায়েন্ট
-client = AsyncIOMotorClient(MONGO_URI)
-db = client.get_default_database("smart_link_shortener")
+# নিরাপদ ডাটাবেজ ক্লায়েন্ট ইনিট
+client = AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+db = client.get_default_database()
 
-sync_client = MongoClient(MONGO_URI)
-sync_db = sync_client.get_default_database("smart_link_shortener")
+sync_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+sync_db = sync_client.get_default_database()
 
 templates = Jinja2Templates(directory="templates")
 
-# সিঙ্ক্রোনাস ইউনিক কোড জেনারেটর (bot.py এর জন্য)
+# সিঙ্ক্রোনাস কোড জেনারেটর
 def generate_unique_code_sync(length=6):
     chars = string.ascii_letters + string.digits
     for _ in range(15):
         code = "".join(secrets.choice(chars) for _ in range(length))
-        if not sync_db.links.find_one({"short_code": code}):
+        try:
+            if not sync_db.links.find_one({"short_code": code}):
+                return code
+        except Exception:
             return code
     return "".join(secrets.choice(chars) for _ in range(length + 2))
 
 async def resolve_weighted_direct_link():
-    links = await db.direct_links.find({"status": "Active"}).to_list(100)
-    if not links:
+    try:
+        links = await db.direct_links.find({"status": "Active"}).to_list(100)
+        if not links:
+            return None
+        weights = [max(1, l.get("weight", 1)) for l in links]
+        chosen = random.choices(links, weights=weights, k=1)[0]
+        await db.direct_links.update_one({"_id": chosen["_id"]}, {"$inc": {"clicks": 1}})
+        return chosen["url"]
+    except Exception:
         return None
-    weights = [max(1, l.get("weight", 1)) for l in links]
-    chosen = random.choices(links, weights=weights, k=1)[0]
-    await db.direct_links.update_one({"_id": chosen["_id"]}, {"$inc": {"clicks": 1}})
-    return chosen["url"]
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # ইনডেক্সিং
-    await db.links.create_index("short_code", unique=True)
-    await db.links.create_index("created_at")
-    await db.steps.create_index("order")
-    await db.direct_links.create_index("status")
-    await db.clicks.create_index("timestamp")
+    try:
+        # ইনডেক্সিং
+        await db.links.create_index("short_code", unique=True)
+        await db.links.create_index("created_at")
+        await db.steps.create_index("order")
+        await db.direct_links.create_index("status")
+        await db.clicks.create_index("timestamp")
 
-    # ডিফল্ট সেটিংস
-    if not await db.settings.find_one({"type": "global"}):
-        await db.settings.insert_one({
-            "type": "global",
-            "site_name": "Pom Pom Links",
-            "base_url": BASE_URL,
-            "channel_id": "",
-            "auto_delete_minutes": 10,
-            "protect_content": True,
-            "public_shortener": True,
-            "wait_seconds": 7
-        })
+        # ডিফল্ট সেটিংস
+        if not await db.settings.find_one({"type": "global"}):
+            await db.settings.insert_one({
+                "type": "global",
+                "site_name": "Pom Pom Links",
+                "base_url": BASE_URL,
+                "channel_id": "",
+                "auto_delete_minutes": 10,
+                "protect_content": True,
+                "public_shortener": True,
+                "wait_seconds": 7
+            })
 
-    # ডিফল্ট স্টেপ
-    if await db.steps.count_documents({}) == 0:
-        await db.steps.insert_many([
-            {"name": "Security Check", "title": "Verifying Link Gateway", "description": "Please wait while we verify destination security.", "timer": 7, "button_text": "Continue", "status": True, "order": 1},
-            {"name": "Final Clearance", "title": "Unlocking Requested Content", "description": "Your requested destination is ready. Click below to proceed.", "timer": 5, "button_text": "Get Link / Download", "status": True, "order": 2}
-        ])
+        # ডিফল্ট স্টেপ
+        if await db.steps.count_documents({}) == 0:
+            await db.steps.insert_many([
+                {"name": "Security Check", "title": "Verifying Link Gateway", "description": "Please wait while we verify destination security.", "timer": 7, "button_text": "Continue", "status": True, "order": 1},
+                {"name": "Final Clearance", "title": "Unlocking Requested Content", "description": "Your requested destination is ready. Click below to proceed.", "timer": 5, "button_text": "Get Link / Download", "status": True, "order": 2}
+            ])
+        print("✅ Database & Global Settings Initialized Successfully!")
+    except Exception as e:
+        print(f"⚠️ Startup Notice: {e}")
 
     # টেলিগ্রাম বট ইনিট
     if BOT_TOKEN:
-        import bot
-        bot.init_bot(app, sync_db, {
-            "BOT_TOKEN": BOT_TOKEN,
-            "BASE_URL": BASE_URL
-        })
+        try:
+            import bot
+            bot.init_bot(app, sync_db, {
+                "BOT_TOKEN": BOT_TOKEN,
+                "BASE_URL": BASE_URL
+            })
+        except Exception as e:
+            print(f"Bot start failed: {e}")
     yield
 
 app = FastAPI(lifespan=lifespan)
@@ -225,7 +249,6 @@ async def finalize_redirect(link: dict, request: Request):
     if dtype == "url":
         return RedirectResponse(link["destination"], status_code=302)
 
-    # টেলিগ্রাম ফাইল ও অ্যালবামের জন্য বটের ইউজারনেম আনা
     bot_user = "TelegramBot"
     if BOT_TOKEN:
         try:
@@ -298,7 +321,6 @@ async def admin_dashboard(request: Request, auth: bool = Depends(check_admin_ses
         "settings": settings or {}
     })
 
-# অ্যাডমিন সেটিংস সেভ
 @app.post("/api/admin/settings")
 async def save_settings(
     site_name: str = Form(...),
@@ -323,7 +345,6 @@ async def save_settings(
     )
     return RedirectResponse("/admin", status_code=303)
 
-# স্টেপ অ্যাড
 @app.post("/api/admin/steps/add")
 async def add_step(
     name: str = Form(...),
@@ -345,7 +366,6 @@ async def del_step(sid: str, auth: bool = Depends(check_admin_session)):
     await db.steps.delete_one({"_id": ObjectId(sid)})
     return RedirectResponse("/admin", status_code=303)
 
-# ডিরেক্ট লিংক অ্যাড
 @app.post("/api/admin/direct/add")
 async def add_direct(
     name: str = Form(...),
@@ -361,7 +381,6 @@ async def del_direct(did: str, auth: bool = Depends(check_admin_session)):
     await db.direct_links.delete_one({"_id": ObjectId(did)})
     return RedirectResponse("/admin", status_code=303)
 
-# লিংক ডিলিট
 @app.post("/api/admin/links/delete/{code}")
 async def del_link(code: str, auth: bool = Depends(check_admin_session)):
     await db.links.delete_one({"short_code": code})
