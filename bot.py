@@ -10,8 +10,6 @@ USER_BATCHES = {}
 BATCH_TIMERS = {}
 BATCH_LOCK = threading.Lock()
 CHANNEL_POST_STATE = {}
-
-# 🌟 ইন-মেমোরি ফাস্ট ক্যাশ (হাজার ইউজারের চাপের সময় ডাটাবেজ স্লো হওয়া বাঁচায়)
 FILE_CACHE = {}
 
 def init_bot(app, sync_db, config):
@@ -26,14 +24,12 @@ def init_bot(app, sync_db, config):
         if not settings:
             return {
                 "base_url": config["BASE_URL"],
-                "channel_id": "",
                 "auto_delete_minutes": 10,
                 "protect_content": True,
                 "tutorial_url": ""
             }
         return {
             "base_url": settings.get("base_url") or config["BASE_URL"],
-            "channel_id": settings.get("channel_id", ""),
             "auto_delete_minutes": settings.get("auto_delete_minutes", 10),
             "protect_content": settings.get("protect_content", True),
             "tutorial_url": settings.get("tutorial_url", "")
@@ -81,7 +77,7 @@ def init_bot(app, sync_db, config):
             f"✅ <b>Smart Gateway Formed!</b>\n\n"
             f"📌 <b>Content:</b> {title}\n"
             f"🔗 <b>Short Link:</b> <code>{short_url}</code>\n\n"
-            f"<i>নিচের বাটন চেপে সরাসরি চ্যানেলে পোস্ট করতে পারেন অথবা ফরওয়ার্ড প্রোটেকশন পরিবর্তন করতে পারেন।</i>",
+            f"<i>নিচের বাটন চেপে সরাসরি যেকোনো চ্যানেলে পোস্ট করতে পারেন অথবা ফরওয়ার্ড প্রোটেকশন পরিবর্তন করতে পারেন।</i>",
             reply_markup=markup
         )
 
@@ -166,14 +162,13 @@ def init_bot(app, sync_db, config):
             reply_markup=markup
         )
 
-    # /start কমান্ড হ্যান্ডলার
+    # /start হ্যান্ডলার
     @bot.message_handler(commands=['start'])
     def handle_start(message):
         chat_id = message.chat.id
         from_user = message.from_user
         text = message.text or ""
 
-        # ইউজার ট্র্যাকিং (ব্যাকগ্রাউন্ডে)
         def track_user():
             sync_db.bot_users.update_one(
                 {"user_id": from_user.id},
@@ -186,11 +181,9 @@ def init_bot(app, sync_db, config):
             )
         threading.Thread(target=track_user, daemon=True).start()
 
-        # ফাইল আনলক করে ডেলিভারি নেওয়া (০.০৫ সেকেন্ডের ফাস্ট ক্যাশ ডেলিভারি)
         if len(text.split()) > 1 and text.split()[1].startswith("unlock_"):
             code = text.split()[1].replace("unlock_", "")
 
-            # ক্যাশ থেকে খোঁজা
             link = FILE_CACHE.get(code) or sync_db.links.find_one({"short_code": code})
             if not link:
                 bot.send_message(chat_id, "❌ <b>দুঃখিত! ফাইলটি পাওয়া যায়নি বা মেয়াদ শেষ হয়ে গেছে।</b>")
@@ -240,17 +233,13 @@ def init_bot(app, sync_db, config):
                             if del_min > 0:
                                 schedule_auto_delete(chat_id, sent_msg.message_id, del_min)
                             time.sleep(0.3)
-                        except Exception as e:
-                            print(f"Delivery Error: {e}")
+                        except Exception:
+                            pass
             return
 
-        bot.send_message(
-            chat_id,
-            "👋 <b>স্বাগতম Smart Link Shortener বটে!</b>\n\n"
-            "যেকোনো ভিডিও বা ফাইল আনলক করতে লিংকে ক্লিক করুন।"
-        )
+        bot.send_message(chat_id, "👋 <b>স্বাগতম Smart Link Shortener বটে!</b>\nযেকোনো ভিডিও বা ফাইল আনলক করতে লিংকে ক্লিক করুন।")
 
-    # 🔒 কঠোর অ্যাডমিন চেক: /stats (অন্য কেউ ব্যবহার করতে পারবে না)
+    # অ্যাডমিন কমান্ড: /stats
     @bot.message_handler(commands=['stats'])
     def handle_stats(message):
         if not is_admin(message.from_user.id):
@@ -269,7 +258,7 @@ def init_bot(app, sync_db, config):
             f"📦 মোট ব্যাচ অ্যালবাম: <b>{total_albums:,}</b> টি"
         )
 
-    # 🔒 কঠোর অ্যাডমিন চেক: /settutorial
+    # অ্যাডমিন কমান্ড: /settutorial
     @bot.message_handler(commands=['settutorial'])
     def set_tutorial_cmd(message):
         if not is_admin(message.from_user.id):
@@ -285,7 +274,7 @@ def init_bot(app, sync_db, config):
         sync_db.settings.update_one({"type": "global"}, {"$set": {"tutorial_url": tut_url}}, upsert=True)
         bot.send_message(message.chat.id, f"✅ <b>টিউটোরিয়াল বাটন লিংক সেট করা হয়েছে:</b>\n{tut_url}")
 
-    # 🔒 কঠোর অ্যাডমিন চেক: /broadcast
+    # অ্যাডমিন কমান্ড: /broadcast
     @bot.message_handler(commands=['broadcast'])
     def handle_broadcast(message):
         if not is_admin(message.from_user.id):
@@ -314,60 +303,65 @@ def init_bot(app, sync_db, config):
                 except Exception:
                     failed += 1
 
-            bot.send_message(
-                message.chat.id,
-                f"🎉 <b>ব্রডকাস্ট সম্পন্ন হয়েছে!</b>\n\n"
-                f"✅ সফল: {success} জন\n"
-                f"❌ ব্লক করেছে: {failed} জন"
-            )
+            bot.send_message(message.chat.id, f"🎉 <b>ব্রডকাস্ট সম্পন্ন!</b>\n✅ সফল: {success} জন\n❌ ব্যর্থ: {failed} জন")
 
         threading.Thread(target=broadcast_worker, daemon=True).start()
 
-    # কলব্যাক কুয়েরি হ্যান্ডলার
+    # 🌟 কলব্যাক কুয়েরি হ্যান্ডলার (মাল্টিপল চ্যানেল সিলেক্টর বাটন সহ)
     @bot.callback_query_handler(func=lambda call: True)
     def handle_callbacks(call):
         data = call.data
         chat_id = call.message.chat.id
         settings = get_settings()
 
+        # ১. চ্যানেলে পোস্ট করার মেনু
         if data.startswith("postinit_"):
             if not is_admin(call.from_user.id):
                 bot.answer_callback_query(call.id, "⛔ আপনি অ্যাডমিন নন!", show_alert=True)
                 return
 
             code = data.replace("postinit_", "")
-            markup = types.InlineKeyboardMarkup(row_width=2)
-            btn_quick = types.InlineKeyboardButton("⚡ Quick Post", callback_data=f"qpost_{code}")
-            btn_custom = types.InlineKeyboardButton("🎨 Custom Poster Post", callback_data=f"cpost_{code}")
-            markup.add(btn_quick, btn_custom)
+            channels = list(sync_db.channels.find())
 
-            bot.send_message(
-                chat_id,
-                "📢 <b>চ্যানেলে কীভাবে পোস্ট করতে চান?</b>\n\n"
-                "• <b>Quick Post:</b> সাধারণ টেক্সট সহ সরাসরি পোস্ট।\n"
-                "• <b>Custom Poster:</b> সুন্দর ছবি/পোস্টার এবং কাস্টম টাইটেল দিয়ে পোস্ট।",
-                reply_markup=markup
-            )
+            if not channels:
+                bot.send_message(chat_id, "⚠️ <b>কোনো চ্যানেল যুক্ত করা হয়নি!</b>\nআগে অ্যাডমিন প্যানেলে গিয়ে চ্যানেল অ্যাড করুন।")
+                bot.answer_callback_query(call.id)
+                return
+
+            # ডাইনামিক চ্যানেল সিলেক্টর বাটন
+            markup = types.InlineKeyboardMarkup(row_width=1)
+            for ch in channels:
+                markup.add(types.InlineKeyboardButton(f"📢 {ch['name']}", callback_data=f"selch_{ch['channel_id']}_{code}"))
+
+            bot.send_message(chat_id, "🎯 <b>কোন চ্যানেলে পোস্ট করতে চান? চ্যানেল বেছে নিন:</b>", reply_markup=markup)
             bot.answer_callback_query(call.id)
 
+        # ২. চ্যানেল বাছাই করার পর Quick Post নাকি Custom Poster পোস্ট তা চাওয়া
+        elif data.startswith("selch_"):
+            parts = data.split("_")
+            ch_target = parts[1]
+            code = parts[2]
+
+            markup = types.InlineKeyboardMarkup(row_width=2)
+            btn_quick = types.InlineKeyboardButton("⚡ Quick Post", callback_data=f"qpost_{ch_target}_{code}")
+            btn_custom = types.InlineKeyboardButton("🎨 Custom Poster Post", callback_data=f"cpost_{ch_target}_{code}")
+            markup.add(btn_quick, btn_custom)
+
+            bot.send_message(chat_id, f"📢 <b>চ্যানেল: <code>{ch_target}</code></b>\nপোস্টের ধরন সিলেক্ট করুন:", reply_markup=markup)
+            bot.answer_callback_query(call.id)
+
+        # ৩. নির্বাচিত নির্দিষ্ট চ্যানেলে কুইক পোস্ট
         elif data.startswith("qpost_"):
-            if not is_admin(call.from_user.id):
-                return
+            parts = data.split("_")
+            ch_target = parts[1]
+            code = parts[2]
 
-            code = data.replace("qpost_", "")
             link = sync_db.links.find_one({"short_code": code})
-            channel_target = settings.get("channel_id")
-
-            if not channel_target:
-                bot.answer_callback_query(call.id, "⚠️ অ্যাডমিন প্যানেলে চ্যানেল আইডি দেওয়া নেই!", show_alert=True)
-                return
-
             short_url = f"{settings['base_url'].rstrip('/')}/s/{code}"
             title = clean_brand_text(link.get("metadata", {}).get("name", "Exclusive Video"))
 
             markup = types.InlineKeyboardMarkup(row_width=2)
             btn_watch = types.InlineKeyboardButton("📥 Download / Watch", url=short_url)
-            
             if settings.get("tutorial_url"):
                 btn_tut = types.InlineKeyboardButton("❓ How to Watch?", url=settings["tutorial_url"])
                 markup.add(btn_watch, btn_tut)
@@ -375,21 +369,23 @@ def init_bot(app, sync_db, config):
                 markup.add(btn_watch)
 
             try:
-                bot.send_message(channel_target, f"🎬 <b>{title}</b>\n\n⚡ সম্পূর্ণ ফ্রিতে ডাউনলোড করতে নিচের বাটনে চাপ দিন 👇", reply_markup=markup)
-                bot.answer_callback_query(call.id, "🎉 চ্যানেলে পোস্ট হয়েছে!", show_alert=True)
+                bot.send_message(ch_target, f"🎬 <b>{title}</b>\n\n⚡ সম্পূর্ণ ফ্রিতে ডাউনলোড করতে নিচের বাটনে চাপ দিন 👇", reply_markup=markup)
+                bot.answer_callback_query(call.id, f"🎉 {ch_target} এ পোস্ট হয়েছে!", show_alert=True)
             except Exception as e:
                 bot.answer_callback_query(call.id, f"এরর: {str(e)}", show_alert=True)
 
+        # ৪. নির্বাচিত নির্দিষ্ট চ্যানেলে কাস্টম পোস্টার পোস্ট শুরু
         elif data.startswith("cpost_"):
-            if not is_admin(call.from_user.id):
-                return
+            parts = data.split("_")
+            ch_target = parts[1]
+            code = parts[2]
 
-            code = data.replace("cpost_", "")
             CHANNEL_POST_STATE[chat_id] = {
                 "step": "AWAIT_POSTER",
-                "code": code
+                "code": code,
+                "channel_target": ch_target
             }
-            bot.send_message(chat_id, "📸 <b>চ্যানেলে যে পোস্টার/ছবিটি পাঠাতে চান, সেই ছবিটি সেন্ড করুন:</b>")
+            bot.send_message(chat_id, f"📸 <b>{ch_target} এর জন্য পোস্টার/ছবিটি সেন্ড করুন:</b>")
             bot.answer_callback_query(call.id)
 
         elif data == "batch_add_more":
@@ -430,7 +426,7 @@ def init_bot(app, sync_db, config):
                 bot.edit_message_reply_markup(chat_id, call.message.message_id, reply_markup=markup)
                 bot.answer_callback_query(call.id, f"Protection is now {'ON' if new_state else 'OFF'}")
 
-    # কাস্টম পোস্টার রিসিভার
+    # পোস্টার ছবি রিসিভার
     @bot.message_handler(content_types=['photo'])
     def handle_poster_photo(message):
         chat_id = message.chat.id
@@ -439,7 +435,7 @@ def init_bot(app, sync_db, config):
                 return
             CHANNEL_POST_STATE[chat_id]["photo_id"] = message.photo[-1].file_id
             CHANNEL_POST_STATE[chat_id]["step"] = "AWAIT_CAPTION"
-            bot.send_message(chat_id, "✍️ <b>পোস্টের জন্য একটি আকর্ষণীয় টাইটেল/ক্যাপশন লিখে পাঠান (বা স্কিপ করতে /skip লিখুন):</b>")
+            bot.send_message(chat_id, "✍️ <b>পোস্টের জন্য আকর্ষণীয় ক্যাপশন লিখে পাঠান (বা স্কিপ করতে /skip লিখুন):</b>")
             return
 
         handle_incoming_media(message)
@@ -453,11 +449,7 @@ def init_bot(app, sync_db, config):
         data = CHANNEL_POST_STATE.pop(chat_id)
         settings = get_settings()
 
-        channel_target = settings.get("channel_id")
-        if not channel_target:
-            bot.send_message(chat_id, "⚠️ অ্যাডমিন প্যানেলে চ্যানেল আইডি দেওয়া নেই!")
-            return
-
+        channel_target = data["channel_target"]
         code = data["code"]
         photo_id = data["photo_id"]
         short_url = f"{settings['base_url'].rstrip('/')}/s/{code}"
@@ -465,7 +457,6 @@ def init_bot(app, sync_db, config):
 
         markup = types.InlineKeyboardMarkup(row_width=2)
         btn_watch = types.InlineKeyboardButton("📥 Download / Watch (HD)", url=short_url)
-        
         if settings.get("tutorial_url"):
             btn_tut = types.InlineKeyboardButton("❓ How to Watch?", url=settings["tutorial_url"])
             markup.add(btn_watch, btn_tut)
@@ -479,16 +470,16 @@ def init_bot(app, sync_db, config):
                 caption=f"🎬 <b>{caption_text}</b>\n\n⚡ সম্পূর্ণ ফ্রিতে দেখতে বা ডাউনলোড করতে নিচের বাটনে চাপ দিন 👇",
                 reply_markup=markup
             )
-            bot.send_message(chat_id, "🎉 <b>পোস্টার ও টিউটোরিয়াল বাটন সহ চ্যানেলে পোস্ট সফল হয়েছে!</b>")
+            bot.send_message(chat_id, f"🎉 <b>{channel_target} চ্যানেলে পোস্টার সহ সফলভাবে পোস্ট হয়েছে!</b>")
         except Exception as e:
             bot.send_message(chat_id, f"❌ চ্যানেলে পোস্ট ব্যর্থ: {str(e)}")
 
-    # 🔒 শুধুমাত্র অ্যাডমিন ফাইল/ভিডিও শর্ট করতে পারবে
+    # মিডিয়া হ্যান্ডলার (সব অ্যাডমিন ফাইল পাঠাতে পারবে)
     @bot.message_handler(content_types=['document', 'video', 'audio'])
     def handle_incoming_media(message):
         chat_id = message.chat.id
         if not is_admin(message.from_user.id):
-            bot.send_message(chat_id, "⛔ <b>দুঃখিত! শুধুমাত্র অ্যাডমিন বটে ফাইল আপলোড করতে পারেন।</b>")
+            bot.send_message(chat_id, "⛔ <b>দুঃখিত! শুধুমাত্র অ্যাডমিন ফাইল আপলোড করতে পারেন।</b>")
             return
 
         file_id = ""
@@ -530,7 +521,7 @@ def init_bot(app, sync_db, config):
             BATCH_TIMERS[chat_id] = timer
             timer.start()
 
-    # টেক্সট URL শর্ট করা (শুধু অ্যাডমিন)
+    # টেক্সট URL হ্যান্ডলার
     @bot.message_handler(func=lambda msg: msg.text and msg.text.startswith(("http://", "https://")))
     def handle_url(message):
         chat_id = message.chat.id
@@ -561,7 +552,6 @@ def init_bot(app, sync_db, config):
         short_url = f"{settings['base_url'].rstrip('/')}/s/{code}"
         send_creation_response(chat_id, "Standard Web URL", short_url, code, False)
 
-    # 🌟 অটোমেটিক Webhook সেট করা (Polling বন্ধ)
     def setup_webhook():
         time.sleep(2)
         webhook_url = f"{config['BASE_URL'].rstrip('/')}/api/telegram/webhook"
