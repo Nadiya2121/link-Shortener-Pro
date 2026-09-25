@@ -16,9 +16,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, HttpUrl
 from itsdangerous import URLSafeTimedSerializer
 
-# ========================================================
 # কনফিগারেশন
-# ========================================================
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 DEFAULT_MONGO = "mongodb+srv://MovieLinkbd:MovieLinkbd@cluster0.cmx4zn5.mongodb.net/smart_shortener?retryWrites=true&w=majority"
 raw_mongo = os.getenv("MONGO_URI", "").strip()
@@ -34,14 +32,16 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123").strip()
 BASE_URL = os.getenv("BASE_URL", "http://localhost:8000").rstrip("/")
 PORT = int(os.getenv("PORT", "8000"))
 
-# অ্যাডমিন আইডি
+# 🌟 মাল্টিপল অ্যাডমিন আইডি ১০০% ফিক্স (কমা বা স্পেস যাই থাকুক নিখুঁতভাবে রিড করবে)
 admin_raw = os.getenv("ADMIN_IDS", "5370676246")
-ADMIN_IDS = [int(x.strip()) for x in admin_raw.split(",") if x.strip().isdigit()]
+ADMIN_IDS = []
+for item in admin_raw.replace(" ", "").split(","):
+    if item.isdigit():
+        ADMIN_IDS.append(int(item))
 
 step_signer = URLSafeTimedSerializer(SECRET_KEY, salt="step-clearance")
 admin_signer = URLSafeTimedSerializer(SECRET_KEY, salt="admin-session")
 
-# হাই-পারফরম্যান্স ডাটাবেজ কানেকশন পুল
 client = AsyncIOMotorClient(MONGO_URI, maxPoolSize=50, minPoolSize=10, serverSelectionTimeoutMS=5000)
 db = client.get_default_database()
 
@@ -50,7 +50,6 @@ sync_db = sync_client.get_default_database()
 
 templates = Jinja2Templates(directory="templates")
 
-# সিঙ্ক্রোনাস কোড জেনারেটর
 def generate_unique_code_sync(length=6):
     chars = string.ascii_letters + string.digits
     for _ in range(15):
@@ -74,19 +73,17 @@ async def resolve_weighted_direct_link():
     except Exception:
         return None
 
-# 🌟 ইন্টারনাল সেলফ-পিং ইঞ্জিন (Render স্লিপ মোড চিরতরে বন্ধ রাখার জন্য)
 def keep_alive_self_ping():
-    time.sleep(30)  # সার্ভার সম্পূর্ণ চালু হতে ৩০ সেকেন্ড বিরতি
+    time.sleep(30)
     print("🚀 Internal Keep-Alive Self-Ping Engine Activated!")
     while True:
         try:
-            # প্রতি ৯ মিনিট পর পর নিজের /health লিংকে পিং পাঠাবে
             target_url = f"{BASE_URL.rstrip('/')}/health"
             res = requests.get(target_url, timeout=10)
-            print(f"💓 Self-Ping Sent to keep server awake. Status: {res.status_code}")
-        except Exception as e:
-            print(f"Self-ping notice: {e}")
-        time.sleep(9 * 60)  # ৯ মিনিট পর পর ঘুরবে
+            print(f"💓 Self-Ping Sent. Status: {res.status_code}")
+        except Exception:
+            pass
+        time.sleep(9 * 60)
 
 bot_instance = None
 
@@ -105,7 +102,6 @@ async def lifespan(app: FastAPI):
                 "type": "global",
                 "site_name": "Pom Pom Links",
                 "base_url": BASE_URL,
-                "channel_id": "",
                 "auto_delete_minutes": 10,
                 "protect_content": True,
                 "public_shortener": True,
@@ -124,10 +120,8 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"Startup Warning: {e}")
 
-    # ব্যাকগ্রাউন্ড সেলফ-পিং চালু করা
     threading.Thread(target=keep_alive_self_ping, daemon=True).start()
 
-    # টেলিগ্রাম বট ইনিট
     if BOT_TOKEN:
         try:
             import bot
@@ -142,7 +136,6 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-# ফাস্ট টেলিগ্রাম Webhook গেটওয়ে
 @app.post("/api/telegram/webhook")
 async def telegram_webhook_handler(request: Request):
     if bot_instance:
@@ -162,10 +155,7 @@ async def check_admin_session(request: Request):
         raise HTTPException(status_code=307, headers={"Location": "/admin/login"})
     return True
 
-# -----------------------------------------------------------------------------
-# পাবলিক ও মাল্টি-স্টেপ রুট
-# -----------------------------------------------------------------------------
-
+# পাবলিক রুট
 @app.get("/health")
 def health():
     return {"status": "ok", "time": time.time()}
@@ -300,10 +290,7 @@ async def finalize_redirect(link: dict, request: Request):
         "content_name": link.get("metadata", {}).get("name", "Telegram Exclusive Content")
     })
 
-# -----------------------------------------------------------------------------
-# অ্যাডমিন প্যানেল
-# -----------------------------------------------------------------------------
-
+# অ্যাডমিন ড্যাশবোর্ড
 @app.get("/admin/login", response_class=HTMLResponse)
 def admin_login_screen(request: Request):
     return templates.TemplateResponse("admin.html", {"request": request, "mode": "login"})
@@ -337,6 +324,7 @@ async def admin_dashboard(request: Request, auth: bool = Depends(check_admin_ses
     links = await db.links.find().sort("created_at", -1).limit(40).to_list(40)
     steps = await db.steps.find().sort("order", 1).to_list(50)
     direct_links = await db.direct_links.find().to_list(50)
+    channels = await db.channels.find().to_list(50)
     settings = await db.settings.find_one({"type": "global"})
 
     return templates.TemplateResponse("admin.html", {
@@ -351,14 +339,25 @@ async def admin_dashboard(request: Request, auth: bool = Depends(check_admin_ses
         "links": links,
         "steps": steps,
         "direct_links": direct_links,
+        "channels": channels,
         "settings": settings or {}
     })
+
+# 🌟 মাল্টিপল চ্যানেল অ্যাড ও ডিলিট API
+@app.post("/api/admin/channels/add")
+async def add_channel(name: str = Form(...), channel_id: str = Form(...), auth: bool = Depends(check_admin_session)):
+    await db.channels.insert_one({"name": name.strip(), "channel_id": channel_id.strip()})
+    return RedirectResponse("/admin", status_code=303)
+
+@app.post("/api/admin/channels/delete/{cid}")
+async def del_channel(cid: str, auth: bool = Depends(check_admin_session)):
+    await db.channels.delete_one({"_id": ObjectId(cid)})
+    return RedirectResponse("/admin", status_code=303)
 
 @app.post("/api/admin/settings")
 async def save_settings(
     site_name: str = Form(...),
     base_url: str = Form(""),
-    channel_id: str = Form(""),
     auto_delete_minutes: int = Form(10),
     protect_content: bool = Form(False),
     public_shortener: bool = Form(False),
@@ -369,7 +368,6 @@ async def save_settings(
         {"$set": {
             "site_name": site_name,
             "base_url": base_url.rstrip("/"),
-            "channel_id": channel_id.strip(),
             "auto_delete_minutes": auto_delete_minutes,
             "protect_content": protect_content,
             "public_shortener": public_shortener
