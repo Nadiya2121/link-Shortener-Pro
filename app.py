@@ -32,7 +32,7 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123").strip()
 BASE_URL = os.getenv("BASE_URL", "http://localhost:8000").rstrip("/")
 PORT = int(os.getenv("PORT", "8000"))
 
-# 🌟 মাল্টিপল অ্যাডমিন আইডি ১০০% ফিক্স (কমা বা স্পেস যাই থাকুক নিখুঁতভাবে রিড করবে)
+# মাল্টিপল অ্যাডমিন আইডি ফিল্টার
 admin_raw = os.getenv("ADMIN_IDS", "5370676246")
 ADMIN_IDS = []
 for item in admin_raw.replace(" ", "").split(","):
@@ -100,7 +100,7 @@ async def lifespan(app: FastAPI):
         if not await db.settings.find_one({"type": "global"}):
             await db.settings.insert_one({
                 "type": "global",
-                "site_name": "Pom Pom Links",
+                "site_name": "My Smart Links",
                 "base_url": BASE_URL,
                 "auto_delete_minutes": 10,
                 "protect_content": True,
@@ -155,19 +155,25 @@ async def check_admin_session(request: Request):
         raise HTTPException(status_code=307, headers={"Location": "/admin/login"})
     return True
 
-# পাবলিক রুট
+# -----------------------------------------------------------------------------
+# পাবলিক ও মাল্টি-স্টেপ রুট
+# -----------------------------------------------------------------------------
+
 @app.get("/health")
 def health():
     return {"status": "ok", "time": time.time()}
 
+# ১. হোমপেজ
 @app.get("/", response_class=HTMLResponse)
 async def home_page(request: Request):
-    settings = await db.settings.find_one({"type": "global"})
+    settings = await db.settings.find_one({"type": "global"}) or {}
+    site_title = settings.get("site_name") or "Smart Link Gateway"
+
     return templates.TemplateResponse("index.html", {
         "request": request,
         "mode": "home",
-        "site_name": settings.get("site_name", "Pom Pom Links") if settings else "Pom Pom Links",
-        "public_enabled": settings.get("public_shortener", True) if settings else True
+        "site_name": site_title,
+        "public_enabled": settings.get("public_shortener", True)
     })
 
 class ShortenReq(BaseModel):
@@ -200,9 +206,17 @@ async def api_create(req: ShortenReq):
 
 @app.get("/s/{code}", response_class=HTMLResponse)
 async def short_gateway(code: str, request: Request):
+    settings = await db.settings.find_one({"type": "global"}) or {}
+    site_title = settings.get("site_name") or "Smart Link Gateway"
+
     link = await db.links.find_one({"short_code": code})
     if not link or link.get("status") != "Active":
-        return templates.TemplateResponse("index.html", {"request": request, "mode": "error", "message": "Link not found or disabled."}, status_code=404)
+        return templates.TemplateResponse("index.html", {
+            "request": request, 
+            "mode": "error", 
+            "site_name": site_title,
+            "message": "Link not found or disabled."
+        }, status_code=404)
 
     await db.links.update_one({"_id": link["_id"]}, {"$inc": {"clicks": 1}})
     await db.clicks.insert_one({"short_code": code, "timestamp": datetime.now(timezone.utc)})
@@ -214,14 +228,23 @@ async def short_gateway(code: str, request: Request):
     token = step_signer.dumps({"code": code, "step": 0})
     return RedirectResponse(f"/s/{code}/step/0?auth={token}", status_code=303)
 
+# ২. স্টেপ পেজ (ডাইনামিক নাম সহ)
 @app.get("/s/{code}/step/{step_idx}", response_class=HTMLResponse)
 async def process_step(code: str, step_idx: int, auth: str, request: Request):
+    settings = await db.settings.find_one({"type": "global"}) or {}
+    site_title = settings.get("site_name") or "Smart Link Gateway"
+
     try:
         data = step_signer.loads(auth, max_age=1800)
         if data.get("code") != code or data.get("step") != step_idx:
             raise Exception()
     except Exception:
-        return templates.TemplateResponse("index.html", {"request": request, "mode": "error", "message": "Invalid or expired step session."}, status_code=403)
+        return templates.TemplateResponse("index.html", {
+            "request": request, 
+            "mode": "error", 
+            "site_name": site_title,
+            "message": "Invalid or expired step session."
+        }, status_code=403)
 
     link = await db.links.find_one({"short_code": code})
     steps = await db.steps.find({"status": True}).sort("order", 1).to_list(100)
@@ -238,11 +261,10 @@ async def process_step(code: str, step_idx: int, auth: str, request: Request):
     is_last = (step_idx + 1) >= len(steps)
     next_url = f"/s/{code}/final?auth={next_token}" if is_last else f"/s/{code}/step/{step_idx + 1}?auth={next_token}"
 
-    settings = await db.settings.find_one({"type": "global"}) or {}
-
     return templates.TemplateResponse("index.html", {
         "request": request,
         "mode": "step",
+        "site_name": site_title,
         "step": current_step,
         "step_num": step_idx + 1,
         "total_steps": len(steps),
@@ -253,15 +275,24 @@ async def process_step(code: str, step_idx: int, auth: str, request: Request):
         "auto_scroll_enabled": settings.get("auto_scroll_enabled", True)
     })
 
+# ৩. ফাইনাল পেজ (ডাইনামিক নাম সহ)
 @app.get("/s/{code}/final", response_class=HTMLResponse)
 async def final_dispatch(code: str, auth: str, request: Request):
+    settings = await db.settings.find_one({"type": "global"}) or {}
+    site_title = settings.get("site_name") or "Smart Link Gateway"
+
     steps = await db.steps.find({"status": True}).sort("order", 1).to_list(100)
     try:
         data = step_signer.loads(auth, max_age=1800)
         if data.get("code") != code or data.get("step") != len(steps):
             raise Exception()
     except Exception:
-        return templates.TemplateResponse("index.html", {"request": request, "mode": "error", "message": "Step sequence validation error."}, status_code=403)
+        return templates.TemplateResponse("index.html", {
+            "request": request, 
+            "mode": "error", 
+            "site_name": site_title,
+            "message": "Step sequence validation error."
+        }, status_code=403)
 
     link = await db.links.find_one({"short_code": code})
     await db.links.update_one({"_id": link["_id"]}, {"$inc": {"final_clicks": 1}})
@@ -271,6 +302,9 @@ async def finalize_redirect(link: dict, request: Request):
     dtype = link.get("destination_type", "url")
     if dtype == "url":
         return RedirectResponse(link["destination"], status_code=302)
+
+    settings = await db.settings.find_one({"type": "global"}) or {}
+    site_title = settings.get("site_name") or "Smart Link Gateway"
 
     bot_user = "TelegramBot"
     if BOT_TOKEN:
@@ -286,11 +320,15 @@ async def finalize_redirect(link: dict, request: Request):
     return templates.TemplateResponse("index.html", {
         "request": request,
         "mode": "final",
+        "site_name": site_title,
         "deep_link": deep_link,
         "content_name": link.get("metadata", {}).get("name", "Telegram Exclusive Content")
     })
 
-# অ্যাডমিন ড্যাশবোর্ড
+# -----------------------------------------------------------------------------
+# অ্যাডমিন প্যানেল
+# -----------------------------------------------------------------------------
+
 @app.get("/admin/login", response_class=HTMLResponse)
 def admin_login_screen(request: Request):
     return templates.TemplateResponse("admin.html", {"request": request, "mode": "login"})
@@ -343,7 +381,6 @@ async def admin_dashboard(request: Request, auth: bool = Depends(check_admin_ses
         "settings": settings or {}
     })
 
-# 🌟 মাল্টিপল চ্যানেল অ্যাড ও ডিলিট API
 @app.post("/api/admin/channels/add")
 async def add_channel(name: str = Form(...), channel_id: str = Form(...), auth: bool = Depends(check_admin_session)):
     await db.channels.insert_one({"name": name.strip(), "channel_id": channel_id.strip()})
@@ -354,6 +391,7 @@ async def del_channel(cid: str, auth: bool = Depends(check_admin_session)):
     await db.channels.delete_one({"_id": ObjectId(cid)})
     return RedirectResponse("/admin", status_code=303)
 
+# 🌟 মাস্টার সেটিংস সেভ (নাম পার্মানেন্ট সেভ হবে)
 @app.post("/api/admin/settings")
 async def save_settings(
     site_name: str = Form(...),
@@ -366,7 +404,7 @@ async def save_settings(
     await db.settings.update_one(
         {"type": "global"},
         {"$set": {
-            "site_name": site_name,
+            "site_name": site_name.strip(),
             "base_url": base_url.rstrip("/"),
             "auto_delete_minutes": auto_delete_minutes,
             "protect_content": protect_content,
