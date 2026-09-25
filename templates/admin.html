@@ -9,7 +9,7 @@
 </head>
 <body class="bg-[#090810] text-gray-200 font-sans pb-20 select-none">
 
-  <!-- ================= ১. সিকিউর লগইন সেকশন ================= -->
+  <!-- ১. লগইন সেকশন -->
   {% if mode == 'login' %}
   <div class="min-h-screen flex items-center justify-center p-4">
     <div class="bg-[#131120] border border-gray-800 p-8 rounded-3xl w-full max-w-sm text-center shadow-2xl">
@@ -32,7 +32,7 @@
     </div>
   </div>
 
-  <!-- ================= ২. মূল ড্যাশবোর্ড সেকশন ================= -->
+  <!-- ২. মূল ড্যাশবোর্ড সেকশন -->
   {% elif mode == 'dashboard' %}
   <div class="max-w-6xl mx-auto p-4 sm:p-6">
     <header class="flex justify-between items-center py-5 border-b border-gray-800/80 mb-8">
@@ -40,7 +40,7 @@
         <h1 class="text-2xl font-black bg-gradient-to-r from-rose-500 to-amber-400 bg-clip-text text-transparent">
           Link Gateway Control Hub
         </h1>
-        <p class="text-xs text-gray-400">টেলিগ্রাম ফাইল লকার ও মাল্টি-স্টেপ মনিটাইজার</p>
+        <p class="text-xs text-gray-400">মাল্টি-চ্যানেল পোস্টার, ফাইল লকার ও অ্যাড মনিটাইজার</p>
       </div>
       <a href="/admin/logout" class="text-xs bg-red-600/20 text-red-400 border border-red-500/30 px-3 py-2 rounded-xl font-bold hover:bg-red-600/30">লগআউট</a>
     </header>
@@ -65,10 +65,10 @@
       </div>
     </div>
 
-    <!-- গ্লোবাল সেটিংস ও চ্যানেল আইডি -->
+    <!-- গ্লোবাল সেটিংস -->
     <div class="bg-[#131120] border border-gray-800 p-6 rounded-3xl mb-8 shadow-xl">
       <h3 class="font-bold text-sm text-rose-400 mb-4 flex items-center gap-2">
-        <i class="fa-solid fa-gears"></i> মাস্টার সেটিংস ও চ্যানেল অটো-পোস্ট কনফিগ
+        <i class="fa-solid fa-gears"></i> মাস্টার সেটিংস কনফিগ
       </h3>
       <form method="POST" action="/api/admin/settings" class="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div>
@@ -76,59 +76,78 @@
           <input type="text" name="site_name" value="{{ settings.site_name }}" class="w-full bg-[#1c192e] border border-gray-700 rounded-xl px-3 py-2 text-xs text-white">
         </div>
         <div>
-          <label class="text-[11px] text-gray-400 block mb-1">বেস ডোমেইন (Render / Custom URL):</label>
+          <label class="text-[11px] text-gray-400 block mb-1">বেস ডোমেইন (Render / Koyeb URL):</label>
           <input type="url" name="base_url" value="{{ settings.base_url }}" class="w-full bg-[#1c192e] border border-gray-700 rounded-xl px-3 py-2 text-xs text-white">
-        </div>
-        <div>
-          <label class="text-[11px] text-gray-400 block mb-1">টেলিগ্রাম চ্যানেল আইডি (যেমন: @Channel বা -100..):</label>
-          <input type="text" name="channel_id" value="{{ settings.channel_id }}" placeholder="@MyChannel" class="w-full bg-[#1c192e] border border-gray-700 rounded-xl px-3 py-2 text-xs text-white">
         </div>
         <div>
           <label class="text-[11px] text-gray-400 block mb-1">ইনবক্স অটো-ডিলিট (মিনিট):</label>
           <input type="number" name="auto_delete_minutes" value="{{ settings.auto_delete_minutes }}" class="w-full bg-[#1c192e] border border-gray-700 rounded-xl px-3 py-2 text-xs text-white">
         </div>
-        <div class="flex items-center gap-2 pt-5">
+        <div class="flex items-center gap-2 pt-2">
           <input type="checkbox" name="protect_content" value="true" {% if settings.protect_content %}checked{% endif %} id="chkProtect">
           <label for="chkProtect" class="text-xs text-gray-300">ডিফল্ট ফরওয়ার্ড প্রটেক্ট ON</label>
         </div>
-        <div class="flex items-center gap-2 pt-5">
+        <div class="flex items-center gap-2 pt-2">
           <input type="checkbox" name="public_shortener" value="true" {% if settings.public_shortener %}checked{% endif %} id="chkPub">
           <label for="chkPub" class="text-xs text-gray-300">পাবলিক শর্টনার চালু রাখুন</label>
         </div>
-        <div class="sm:col-span-3 pt-2">
+        <div class="pt-2">
           <button type="submit" class="bg-rose-600 hover:bg-rose-700 text-xs px-5 py-2.5 rounded-xl font-bold transition">সেটিংস সেভ করুন</button>
         </div>
       </form>
     </div>
 
-    <!-- 🌟 নতুন: নেটিভ ব্যানার অ্যাড ম্যানেজার ও অটো-স্ক্রোল কনফিগ -->
+    <!-- 🌟 নতুন: মাল্টিপল টেলিগ্রাম চ্যানেল ম্যানেজার -->
     <div class="bg-[#131120] border border-gray-800 p-6 rounded-3xl mb-8 shadow-xl">
-      <div class="flex justify-between items-center mb-4">
-        <div>
-          <h3 class="font-bold text-sm text-emerald-400 flex items-center gap-2">
-            <i class="fa-solid fa-rectangle-ad"></i> নেটিভ ব্যানার অ্যাড ও অটো-স্ক্রোল সেটিংস
-          </h3>
-          <p class="text-[11px] text-gray-400 mt-0.5">Monetag, Adsterra ইত্যাদি নেটওয়ার্কের ব্যানার স্ক্রিপ্ট এখানে পেস্ট করুন</p>
+      <h3 class="font-bold text-sm text-blue-400 mb-2 flex items-center gap-2">
+        <i class="fa-solid fa-bullhorn"></i> মাল্টিপল চ্যানেল ম্যানেজার (Multiple Channels)
+      </h3>
+      <p class="text-[11px] text-gray-400 mb-4">এখানে একাধিক চ্যানেল যুক্ত করুন। বটে পোস্ট করার সময় আপনি চ্যানেল সিলেক্ট করতে পারবেন।</p>
+      
+      <form method="POST" action="/api/admin/channels/add" class="flex flex-col sm:flex-row gap-3 mb-4">
+        <input type="text" name="name" placeholder="চ্যানেলের নাম (যেমন: Movie Channel)" required class="flex-1 bg-[#1c192e] border border-gray-700 rounded-xl px-3 py-2 text-xs text-white">
+        <input type="text" name="channel_id" placeholder="চ্যানেল ইউজারনেম/আইডি (যেমন: @MyMovies বা -100..)" required class="flex-1 bg-[#1c192e] border border-gray-700 rounded-xl px-3 py-2 text-xs text-white">
+        <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-5 py-2 rounded-xl transition">+ Add Channel</button>
+      </form>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        {% for ch in channels %}
+        <div class="flex justify-between items-center bg-[#1c192e] px-4 py-2.5 rounded-xl text-xs border border-gray-800">
+          <div>
+            <b class="text-white">📢 {{ ch.name }}</b> 
+            <span class="text-gray-400 font-mono">({{ ch.channel_id }})</span>
+          </div>
+          <form method="POST" action="/api/admin/channels/delete/{{ ch._id }}">
+            <button type="submit" class="text-red-400 hover:text-red-300 font-bold">✕ Delete</button>
+          </form>
         </div>
+        {% else %}
+        <p class="text-xs text-gray-500 py-2">কোনো চ্যানেল যুক্ত করা হয়নি।</p>
+        {% endfor %}
       </div>
+    </div>
+
+    <!-- নেটিভ ব্যানার অ্যাড ও অটো-স্ক্রোল -->
+    <div class="bg-[#131120] border border-gray-800 p-6 rounded-3xl mb-8 shadow-xl">
+      <h3 class="font-bold text-sm text-emerald-400 flex items-center gap-2 mb-2">
+        <i class="fa-solid fa-rectangle-ad"></i> নেটিভ ব্যানার অ্যাড ও অটো-স্ক্রোল সেটিংস
+      </h3>
       <form method="POST" action="/api/admin/save-native-ads" class="space-y-4">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label class="text-[11px] text-gray-400 block mb-1 font-bold">১. টপ ব্যানার অ্যাড কোড (Top Banner Script):</label>
-            <textarea name="native_ad_top" rows="4" placeholder="<!-- Monetag/Adsterra Banner Script Here -->" class="w-full bg-[#1c192e] border border-gray-700 rounded-xl p-3 text-xs font-mono text-emerald-300 focus:outline-none focus:border-emerald-500">{{ settings.native_ad_top or '' }}</textarea>
+            <textarea name="native_ad_top" rows="3" placeholder="<!-- Banner Script -->" class="w-full bg-[#1c192e] border border-gray-700 rounded-xl p-3 text-xs font-mono text-emerald-300 focus:outline-none">{{ settings.native_ad_top or '' }}</textarea>
           </div>
           <div>
             <label class="text-[11px] text-gray-400 block mb-1 font-bold">২. বটম ব্যানার অ্যাড কোড (Bottom Banner Script):</label>
-            <textarea name="native_ad_bottom" rows="4" placeholder="<!-- Monetag/Adsterra Banner Script Here -->" class="w-full bg-[#1c192e] border border-gray-700 rounded-xl p-3 text-xs font-mono text-emerald-300 focus:outline-none focus:border-emerald-500">{{ settings.native_ad_bottom or '' }}</textarea>
+            <textarea name="native_ad_bottom" rows="3" placeholder="<!-- Banner Script -->" class="w-full bg-[#1c192e] border border-gray-700 rounded-xl p-3 text-xs font-mono text-emerald-300 focus:outline-none">{{ settings.native_ad_bottom or '' }}</textarea>
           </div>
         </div>
-        <div class="flex items-center gap-2 pt-1">
+        <div class="flex items-center gap-2">
           <input type="checkbox" name="auto_scroll_enabled" value="true" {% if settings.auto_scroll_enabled is not defined or settings.auto_scroll_enabled %}checked{% endif %} id="chkScroll">
-          <label for="chkScroll" class="text-xs text-gray-300 font-bold">পেজে ঢুকলে স্বয়ংক্রিয়ভাবে স্ক্রোল করে নিচে বাটনের কাছে নিয়ে যান (Auto-Scroll)</label>
+          <label for="chkScroll" class="text-xs text-gray-300 font-bold">পেজে ঢুকলে স্বয়ংক্রিয়ভাবে স্ক্রোল করে নিচে নিয়ে যান (Auto-Scroll)</label>
         </div>
-        <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-5 py-2.5 rounded-xl transition">
-          ব্যানার কোড সেভ করুন
-        </button>
+        <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-5 py-2 rounded-xl transition">ব্যানার কোড সেভ করুন</button>
       </form>
     </div>
 
@@ -147,9 +166,7 @@
       <div class="space-y-2">
         {% for s in steps %}
         <div class="flex justify-between items-center bg-[#1c192e] px-4 py-2.5 rounded-xl text-xs">
-          <div>
-            <b>{{ s.order }}. {{ s.name }}</b> — {{ s.title }} ({{ s.timer }}s)
-          </div>
+          <div><b>{{ s.order }}. {{ s.name }}</b> — {{ s.title }} ({{ s.timer }}s)</div>
           <form method="POST" action="/api/admin/steps/delete/{{ s._id }}">
             <button type="submit" class="text-red-400 hover:text-red-300">✕ Delete</button>
           </form>
