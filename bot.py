@@ -65,11 +65,8 @@ def init_bot(app, sync_db, config):
 
         threading.Thread(target=delete_worker, daemon=True).start()
 
-    # অ্যাডমিন এবং পাবলিকের জন্য আলাদা রেসপন্স বাটন
     def send_creation_response(chat_id, title, short_url, code, protect_status, user_is_admin):
         markup = types.InlineKeyboardMarkup(row_width=2)
-        
-        # 🌟 শুধুমাত্র অ্যাডমিনদের জন্য চ্যানেলে পোস্ট ও প্রটেকশন বাটন থাকবে
         if user_is_admin:
             btn_channel = types.InlineKeyboardButton("📢 Post to Channel", callback_data=f"postinit_{code}")
             btn_protect = types.InlineKeyboardButton(f"🛡️ Protect: {'ON' if protect_status else 'OFF'}", callback_data=f"tog_{code}")
@@ -83,6 +80,7 @@ def init_bot(app, sync_db, config):
             chat_id,
             f"✅ <b>Smart Gateway Formed!</b>\n\n"
             f"📌 <b>Content:</b> {title}\n"
+            f"🛡️ <b>Protection:</b> {'ENABLED (Forward Blocked)' if protect_status else 'DISABLED'}\n"
             f"🔗 <b>Short Link:</b> <code>{short_url}</code>\n\n"
             f"<i>লিংকটি বন্ধুদের সাথে শেয়ার করুন। লিংকে ক্লিক করলে স্বয়ংক্রিয়ভাবে কন্টেন্ট আনলক হয়ে যাবে।</i>",
             reply_markup=markup
@@ -170,7 +168,7 @@ def init_bot(app, sync_db, config):
             reply_markup=markup
         )
 
-    # /start হ্যান্ডলার
+    # 🌟 /start হ্যান্ডলার (১০০% নিখুঁত কন্টেন্ট প্রোটেকশন ডেলিভারি)
     @bot.message_handler(commands=['start'])
     def handle_start(message):
         chat_id = message.chat.id
@@ -192,37 +190,48 @@ def init_bot(app, sync_db, config):
         if len(text.split()) > 1 and text.split()[1].startswith("unlock_"):
             code = text.split()[1].replace("unlock_", "")
 
-            link = FILE_CACHE.get(code) or sync_db.links.find_one({"short_code": code})
+            # ডাটাবেজ থেকে লিংক খোঁজা
+            link = sync_db.links.find_one({"short_code": code})
             if not link:
                 bot.send_message(chat_id, "❌ <b>দুঃখিত! ফাইলটি পাওয়া যায়নি বা মেয়াদ শেষ হয়ে গেছে।</b>")
                 return
 
             settings = get_settings()
             del_min = settings["auto_delete_minutes"]
-            is_protected = link.get("protect_content", settings["protect_content"])
+            
+            # 🌟 কন্টেন্ট প্রোটেকশন নিশ্চিত করা (True/False ভ্যালিডেশন)
+            is_protected = bool(link.get("protect_content", True))
             timer_note = f"\n\n⏳ <i>সতর্কতা: এই ফাইলটি {del_min} মিনিট পর স্বয়ংক্রিয়ভাবে মুছে যাবে!</i>" if del_min > 0 else ""
 
             dtype = link.get("destination_type")
 
+            # সিঙ্গেল ফাইল ডেলিভারি
             if dtype == "telegram_file":
                 meta = link.get("metadata", {})
                 clean_title = clean_brand_text(meta.get('name', 'File'))
                 caption = f"🎉 <b>{clean_title}</b>{timer_note}"
 
-                sent_msg = bot.send_video(
-                    chat_id=chat_id,
-                    video=meta["file_id"],
-                    protect_content=is_protected,
-                    caption=caption
-                ) if meta.get("file_type") == "video" else bot.send_document(
-                    chat_id=chat_id,
-                    document=meta["file_id"],
-                    protect_content=is_protected,
-                    caption=caption
-                )
-                if del_min > 0:
-                    schedule_auto_delete(chat_id, sent_msg.message_id, del_min)
+                try:
+                    if meta.get("file_type") == "video":
+                        sent_msg = bot.send_video(
+                            chat_id=chat_id,
+                            video=meta["file_id"],
+                            protect_content=is_protected,  # <-- শতভাগ সুরক্ষিত
+                            caption=caption
+                        )
+                    else:
+                        sent_msg = bot.send_document(
+                            chat_id=chat_id,
+                            document=meta["file_id"],
+                            protect_content=is_protected,  # <-- শতভাগ সুরক্ষিত
+                            caption=caption
+                        )
+                    if del_min > 0:
+                        schedule_auto_delete(chat_id, sent_msg.message_id, del_min)
+                except Exception as e:
+                    print(f"Delivery Error: {e}")
 
+            # ব্যাচ / অ্যালবাম ডেলিভারি
             elif dtype == "telegram_album":
                 album = sync_db.albums.find_one({"_id": ObjectId(link["destination"])})
                 if album and album.get("items"):
@@ -240,7 +249,7 @@ def init_bot(app, sync_db, config):
                             
                             if del_min > 0:
                                 schedule_auto_delete(chat_id, sent_msg.message_id, del_min)
-                            time.sleep(0.3)
+                            time.sleep(0.4)
                         except Exception:
                             pass
             return
@@ -319,7 +328,7 @@ def init_bot(app, sync_db, config):
 
         threading.Thread(target=broadcast_worker, daemon=True).start()
 
-    # কলব্যাক কুয়েরি হ্যান্ডলার
+    # 🌟 কলব্যাক কুয়েরি হ্যান্ডলার
     @bot.callback_query_handler(func=lambda call: True)
     def handle_callbacks(call):
         data = call.data
@@ -414,14 +423,21 @@ def init_bot(app, sync_db, config):
             bot.delete_message(chat_id, call.message.message_id)
             finalize_batch_link(chat_id, user_id)
 
+        # 🌟 ফরওয়ার্ড প্রটেকশন টগল ১০০% ফিক্স
         elif data.startswith("tog_"):
             if not is_admin(user_id):
                 return
             code = data.replace("tog_", "")
             link = sync_db.links.find_one({"short_code": code})
             if link:
-                new_state = not link.get("protect_content", True)
+                current_state = bool(link.get("protect_content", True))
+                new_state = not current_state
                 sync_db.links.update_one({"_id": link["_id"]}, {"$set": {"protect_content": new_state}})
+                
+                # ক্যাশ আপডেট
+                if code in FILE_CACHE:
+                    FILE_CACHE[code]["protect_content"] = new_state
+
                 short_url = f"{settings['base_url'].rstrip('/')}/s/{code}"
                 title = clean_brand_text(link.get("metadata", {}).get("name", "Content"))
 
@@ -434,7 +450,7 @@ def init_bot(app, sync_db, config):
                 markup.add(btn_visit, btn_share)
 
                 bot.edit_message_reply_markup(chat_id, call.message.message_id, reply_markup=markup)
-                bot.answer_callback_query(call.id, f"Protection is now {'ON' if new_state else 'OFF'}")
+                bot.answer_callback_query(call.id, f"Protection is now {'ON (Blocked)' if new_state else 'OFF (Allowed)'}", show_alert=True)
 
     # পোস্টার ছবি রিসিভার
     @bot.message_handler(content_types=['photo'])
@@ -484,14 +500,13 @@ def init_bot(app, sync_db, config):
         except Exception as e:
             bot.send_message(chat_id, f"❌ চ্যানেলে পোস্ট ব্যর্থ: {str(e)}")
 
-    # 🌟 পাবলিক ও অ্যাডমিন সবার মিডিয়া ফাইল হ্যান্ডলার
+    # মিডিয়া ফাইল হ্যান্ডলার
     @bot.message_handler(content_types=['document', 'video', 'audio'])
     def handle_incoming_media(message):
         chat_id = message.chat.id
         from_user = message.from_user
         settings = get_settings()
 
-        # যদি পাবলিক শর্টনার অফ থাকে এবং ইউজার অ্যাডমিন না হয়
         if not settings.get("public_shortener", True) and not is_admin(from_user.id):
             bot.send_message(chat_id, "⛔ <b>পাবলিক লিংক শর্টনার বর্তমানে বন্ধ রয়েছে।</b>")
             return
@@ -535,7 +550,7 @@ def init_bot(app, sync_db, config):
             BATCH_TIMERS[chat_id] = timer
             timer.start()
 
-    # 🌟 পাবলিক ও অ্যাডমিন সবার টেক্সট URL শর্ট করা
+    # টেক্সট URL হ্যান্ডলার
     @bot.message_handler(func=lambda msg: msg.text and msg.text.startswith(("http://", "https://")))
     def handle_url(message):
         chat_id = message.chat.id
