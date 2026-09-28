@@ -178,7 +178,7 @@
 
     </div>
 
-    <!-- ================= ২. সিনেমাটিক মাল্টি-স্টেপ স্ক্রিন (সার্কুলার টাইমার সহ) ================= -->
+    <!-- ================= ২. সিনেমাটিক মাল্টি-স্টেপ স্ক্রিন ================= -->
     {% elif mode == 'step' %}
     <div class="w-full max-w-md flex flex-col items-center">
       
@@ -198,7 +198,7 @@
           <span class="bg-rose-500/10 text-rose-400 border border-rose-500/20 px-2.5 py-1 rounded-full font-mono">Step {{ step_num }} of {{ total_steps }}</span>
         </div>
 
-        <!-- 🌟 প্রিমিয়াম সার্কুলার স্পিডোমিটার টাইমার -->
+        <!-- সার্কুলার স্পিডোমিটার টাইমার -->
         <div class="circle-timer mb-6">
           <svg>
             <defs>
@@ -225,13 +225,13 @@
             <i class="fa-solid fa-check text-emerald-400 text-xs"></i> Destination Payload Encrypted
           </div>
           <div class="flex items-center gap-2 text-[11px] text-gray-300">
-            <i class="fa-solid fa-check text-emerald-400 text-xs"></i> Cloud Fast-Tunnel Tunnel Ready
+            <i class="fa-solid fa-check text-emerald-400 text-xs"></i> Cloud Fast-Tunnel Ready
           </div>
         </div>
 
         <!-- অটো-স্ক্রোল টার্গেট ও অ্যাকশন বাটন -->
         <div id="actionAnchor" class="pt-1">
-          <a id="stepBtn" href="{{ next_url }}" data-ad="{{ direct_url }}" class="w-full btn-neon text-white font-extrabold py-4 rounded-2xl text-sm flex items-center justify-center gap-2 opacity-30 pointer-events-none transition shadow-lg">
+          <a id="stepBtn" href="{{ next_url }}" class="w-full btn-neon text-white font-extrabold py-4 rounded-2xl text-sm flex items-center justify-center gap-2 opacity-30 pointer-events-none transition shadow-lg">
             <span>{{ step.button_text }}</span>
             <i class="fa-solid fa-arrow-right text-xs"></i>
           </a>
@@ -305,7 +305,6 @@
           const data = await res.json();
           if (data.status === 'success') {
             document.getElementById('shortRes').value = data.short_url;
-            // ফ্রি কিউআর কোড API দিয়ে লাইভ কিউআর কোড জেনারেট
             document.getElementById('qrCodeImg').src = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(data.short_url)}`;
             document.getElementById('resultBox').classList.remove('hidden');
           }
@@ -328,10 +327,9 @@
       }, 2000);
     }
 
-    // ২. সিনেমাটিক সার্কুলার টাইমার এবং অটো-স্ক্রোল লজিক
+    // ২. সিনেমাটিক সার্কুলার টাইমার এবং ১০০% ফিক্সড Monetag/Adsterra ওপেনিং ইঞ্জিন
     const countText = document.getElementById('countdownText');
     if (countText) {
-      // 🌟 অটো-স্ক্রোল ট্রিক: পেজে ঢোকার ৮০০ms পর স্মুথভাবে নিচে বাটনের কাছে নিয়ে যাওয়া
       {% if auto_scroll_enabled is not defined or auto_scroll_enabled %}
       setTimeout(() => {
         const target = document.getElementById('actionAnchor');
@@ -344,15 +342,14 @@
       let totalSeconds = parseInt(countText.innerText) || 7;
       let remaining = totalSeconds;
       const circle = document.getElementById('circleProgress');
-      const maxDash = 364; // সার্কেলের পরিধি
+      const maxDash = 364;
       const btn = document.getElementById('stepBtn');
-      const adUrl = btn.getAttribute('data-ad');
+      const adUrl = "{{ direct_url }}"; // সার্ভার থেকে আসা অ্যাড লিংক
 
       const timer = setInterval(() => {
         remaining--;
         if (remaining >= 0) {
           countText.innerText = remaining;
-          // সার্কেলের প্রগ্রেস নিয়ন গ্রাফিক্স অ্যানিমেশন
           const offset = maxDash - ((totalSeconds - remaining) / totalSeconds) * maxDash;
           circle.style.strokeDashoffset = offset;
         }
@@ -366,9 +363,14 @@
         }
       }, 1000);
 
-      btn.addEventListener('click', () => {
+      // 🌟 আসল ফিক্স: ইউজার ক্লিক করার সাথে সাথে Monetag/Adsterra যাতে নিশ্চিতভাবে ওপেন হয়
+      btn.addEventListener('click', (e) => {
         if (adUrl && adUrl.length > 5) {
-          window.open(adUrl, '_blank');
+          // সরাসরি ইউজার ক্লিক হ্যান্ডলার (Popup Blocker বাইপাস হবে)
+          const newWindow = window.open(adUrl, '_blank', 'noopener,noreferrer');
+          if (newWindow) {
+            newWindow.focus();
+          }
         }
       });
     }
