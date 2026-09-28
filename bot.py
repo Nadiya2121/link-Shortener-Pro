@@ -46,6 +46,7 @@ def init_bot(app, sync_db, config):
         text = re.sub(r'\s+', ' ', text).strip()
         return text if len(text) > 2 else "Exclusive Content"
 
+    # 🌟 নিঃশব্দে অটো-ডিলিট ইঞ্জিন (কোনো বাড়তি মেসেজ বা নোটিশ দেবে না, চ্যাট থাকবে একদম ফ্রেশ)
     def schedule_auto_delete(chat_id, message_id, minutes):
         if minutes <= 0:
             return
@@ -53,13 +54,8 @@ def init_bot(app, sync_db, config):
         def delete_worker():
             time.sleep(minutes * 60)
             try:
+                # শুধুমাত্র ফাইলটি ডিলিট করে দেবে, কোনো নোটিশ মেসেজ পাঠাবে না
                 bot.delete_message(chat_id=chat_id, message_id=message_id)
-                notice = bot.send_message(
-                    chat_id, 
-                    "⚠️ <b>সময় শেষ! আপনার ফাইলটি চ্যাট থেকে মুছে ফেলা হয়েছে।</b>\nপ্রয়োজনে পুনরায় শর্ট লিংক ভিজিট করে ফাইল আনলক করুন।"
-                )
-                time.sleep(45)
-                bot.delete_message(chat_id=chat_id, message_id=notice.message_id)
             except Exception:
                 pass
 
@@ -168,7 +164,7 @@ def init_bot(app, sync_db, config):
             reply_markup=markup
         )
 
-    # 🌟 /start হ্যান্ডলার (১০০% নিখুঁত কন্টেন্ট প্রোটেকশন ডেলিভারি)
+    # 🌟 /start হ্যান্ডলার
     @bot.message_handler(commands=['start'])
     def handle_start(message):
         chat_id = message.chat.id
@@ -190,7 +186,6 @@ def init_bot(app, sync_db, config):
         if len(text.split()) > 1 and text.split()[1].startswith("unlock_"):
             code = text.split()[1].replace("unlock_", "")
 
-            # ডাটাবেজ থেকে লিংক খোঁজা
             link = sync_db.links.find_one({"short_code": code})
             if not link:
                 bot.send_message(chat_id, "❌ <b>দুঃখিত! ফাইলটি পাওয়া যায়নি বা মেয়াদ শেষ হয়ে গেছে।</b>")
@@ -198,8 +193,6 @@ def init_bot(app, sync_db, config):
 
             settings = get_settings()
             del_min = settings["auto_delete_minutes"]
-            
-            # 🌟 কন্টেন্ট প্রোটেকশন নিশ্চিত করা (True/False ভ্যালিডেশন)
             is_protected = bool(link.get("protect_content", True))
             timer_note = f"\n\n⏳ <i>সতর্কতা: এই ফাইলটি {del_min} মিনিট পর স্বয়ংক্রিয়ভাবে মুছে যাবে!</i>" if del_min > 0 else ""
 
@@ -216,14 +209,14 @@ def init_bot(app, sync_db, config):
                         sent_msg = bot.send_video(
                             chat_id=chat_id,
                             video=meta["file_id"],
-                            protect_content=is_protected,  # <-- শতভাগ সুরক্ষিত
+                            protect_content=is_protected,
                             caption=caption
                         )
                     else:
                         sent_msg = bot.send_document(
                             chat_id=chat_id,
                             document=meta["file_id"],
-                            protect_content=is_protected,  # <-- শতভাগ সুরক্ষিত
+                            protect_content=is_protected,
                             caption=caption
                         )
                     if del_min > 0:
@@ -423,7 +416,6 @@ def init_bot(app, sync_db, config):
             bot.delete_message(chat_id, call.message.message_id)
             finalize_batch_link(chat_id, user_id)
 
-        # 🌟 ফরওয়ার্ড প্রটেকশন টগল ১০০% ফিক্স
         elif data.startswith("tog_"):
             if not is_admin(user_id):
                 return
@@ -434,7 +426,6 @@ def init_bot(app, sync_db, config):
                 new_state = not current_state
                 sync_db.links.update_one({"_id": link["_id"]}, {"$set": {"protect_content": new_state}})
                 
-                # ক্যাশ আপডেট
                 if code in FILE_CACHE:
                     FILE_CACHE[code]["protect_content"] = new_state
 
