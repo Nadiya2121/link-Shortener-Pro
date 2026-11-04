@@ -65,14 +65,14 @@
       </div>
     </div>
 
-    <!-- 🔥 সহজ ৩-বক্স ডিরেক্ট অ্যাড মনিটাইজার ও লাইভ কাউন্টার -->
+    <!-- 🔥 আল্টিমেট মাল্টি-লিংক বক্স কন্ট্রোলার (প্রতি বক্সে যতখুশি লিংক বসান) -->
     <div class="bg-[#131120] border border-purple-500/30 p-6 rounded-3xl mb-8 shadow-2xl">
       <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-6">
         <div>
           <h3 class="font-bold text-base text-purple-400 flex items-center gap-2">
-            <i class="fa-solid fa-money-bill-trend-up text-purple-400 text-lg"></i> হাই-সিপিএম ডিরেক্ট অ্যাড কন্ট্রোলার (৩-বক্স সিস্টেম)
+            <i class="fa-solid fa-layer-group text-purple-400 text-lg"></i> মাল্টি-লিংক ডিরেক্ট অ্যাড পুল (Auto-Rotating Matrix)
           </h3>
-          <p class="text-xs text-gray-400 mt-0.5">একসাথে ৩টি লিংক বসিয়ে সেভ করুন। স্টেপ ১ ও স্টেপ ২-তে স্বয়ংক্রিয়ভাবে আলাদা বিজ্ঞাপন ওপেন হবে।</p>
+          <p class="text-xs text-gray-400 mt-0.5">প্রতিটি বক্সে এন্টার (Enter) দিয়ে একের পর এক লিংক দিন। সিস্টেম নিজে থেকেই সেগুলো ঘুরিয়ে ঘুরিয়ে দেখাবে!</p>
         </div>
         <form method="POST" action="/api/admin/reset-matrix-clicks">
           <button type="submit" onclick="return confirm('সব বিজ্ঞাপন ক্লিক সংখ্যা ০ করতে চান?')" class="bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs px-3.5 py-1.5 rounded-xl border border-gray-700 transition">
@@ -81,62 +81,53 @@
         </form>
       </div>
 
-      <form method="POST" action="/api/admin/save-direct-matrix" class="space-y-4">
+      <form method="POST" action="/api/admin/save-direct-matrix" class="space-y-5">
         
-        <!-- বক্স ১: Monetag (Step 1) -->
-        <div class="bg-[#1c192e] p-4 rounded-2xl border border-blue-500/30 flex flex-col sm:flex-row items-center gap-4">
-          <div class="w-full sm:w-44">
-            <span class="bg-blue-500/20 text-blue-400 border border-blue-500/30 px-2.5 py-1 rounded-lg text-xs font-bold block text-center">
-              ⚡ Step 1 (Monetag)
+        <!-- বক্স ১: Monetag Pool -->
+        <div class="bg-[#1c192e] p-5 rounded-2xl border border-blue-500/30">
+          <div class="flex justify-between items-center mb-2">
+            <span class="bg-blue-500/20 text-blue-400 border border-blue-500/30 px-3 py-1 rounded-lg text-xs font-bold">
+              ⚡ Step 1 পুল: Monetag (৩টি বা যতখুশি লিংক)
             </span>
-            <p class="text-[10px] text-gray-400 text-center mt-1">১ম স্টেপে ওপেন হবে</p>
+            <div class="text-xs text-gray-400">
+              মোট ক্লিক: <b class="text-amber-400">{{ settings.clicks_pool_1 or 0 }}</b>
+            </div>
           </div>
-          <div class="flex-1 w-full">
-            <input type="url" name="ad_link_1" value="{{ settings.ad_link_1 or '' }}" placeholder="https://otieuwep.com/... (Monetag Direct Link)" class="w-full bg-[#110f1d] border border-gray-700 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-blue-500">
-          </div>
-          <div class="bg-[#110f1d] border border-gray-700 px-4 py-2 rounded-xl text-center min-w-[90px]">
-            <p class="text-[9px] text-gray-400 font-bold uppercase">Clicks</p>
-            <span class="text-amber-400 font-black text-sm">{{ settings.clicks_ad_1 or 0 }}</span>
-          </div>
+          <p class="text-[11px] text-gray-400 mb-2">প্রতি লাইনে ১টি করে Monetag ডিরেক্ট লিংক পেস্ট করুন:</p>
+          <textarea name="ad_pool_1" rows="3" placeholder="https://uplcm.com/4/11063339&#10;https://uplcm.com/4/10395944&#10;https://uplcm.com/4/10136724" class="w-full bg-[#110f1d] border border-gray-700 rounded-xl p-3 text-xs font-mono text-blue-300 focus:outline-none focus:border-blue-500">{{ settings.ad_pool_1 or '' }}</textarea>
         </div>
 
-        <!-- বক্স ২: Adsterra (Step 2) -->
-        <div class="bg-[#1c192e] p-4 rounded-2xl border border-pink-500/30 flex flex-col sm:flex-row items-center gap-4">
-          <div class="w-full sm:w-44">
-            <span class="bg-pink-500/20 text-pink-400 border border-pink-500/30 px-2.5 py-1 rounded-lg text-xs font-bold block text-center">
-              🔥 Step 2 (Adsterra)
+        <!-- বক্স ২: Adsterra Pool -->
+        <div class="bg-[#1c192e] p-5 rounded-2xl border border-pink-500/30">
+          <div class="flex justify-between items-center mb-2">
+            <span class="bg-pink-500/20 text-pink-400 border border-pink-500/30 px-3 py-1 rounded-lg text-xs font-bold">
+              🔥 Step 2 পুল: Adsterra (৩টি বা যতখুশি লিংক)
             </span>
-            <p class="text-[10px] text-gray-400 text-center mt-1">২য় স্টেপে ওপেন হবে</p>
+            <div class="text-xs text-gray-400">
+              মোট ক্লিক: <b class="text-amber-400">{{ settings.clicks_pool_2 or 0 }}</b>
+            </div>
           </div>
-          <div class="flex-1 w-full">
-            <input type="url" name="ad_link_2" value="{{ settings.ad_link_2 or '' }}" placeholder="https://adsterra-direct-link.com/... (Adsterra Link)" class="w-full bg-[#110f1d] border border-gray-700 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-pink-500">
-          </div>
-          <div class="bg-[#110f1d] border border-gray-700 px-4 py-2 rounded-xl text-center min-w-[90px]">
-            <p class="text-[9px] text-gray-400 font-bold uppercase">Clicks</p>
-            <span class="text-amber-400 font-black text-sm">{{ settings.clicks_ad_2 or 0 }}</span>
-          </div>
+          <p class="text-[11px] text-gray-400 mb-2">প্রতি লাইনে ১টি করে Adsterra ডিরেক্ট লিংক পেস্ট করুন:</p>
+          <textarea name="ad_pool_2" rows="3" placeholder="https://adsterra-link-1.com/...&#10;https://adsterra-link-2.com/...&#10;https://adsterra-link-3.com/..." class="w-full bg-[#110f1d] border border-gray-700 rounded-xl p-3 text-xs font-mono text-pink-300 focus:outline-none focus:border-pink-500">{{ settings.ad_pool_2 or '' }}</textarea>
         </div>
 
-        <!-- বক্স ৩: অন্যান্য নেটওয়ার্ক (Step 3 / Backup) -->
-        <div class="bg-[#1c192e] p-4 rounded-2xl border border-emerald-500/30 flex flex-col sm:flex-row items-center gap-4">
-          <div class="w-full sm:w-44">
-            <span class="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2.5 py-1 rounded-lg text-xs font-bold block text-center">
-              💎 Step 3 / Bonus
+        <!-- বক্স ৩: Backup / Step 3 Pool -->
+        <div class="bg-[#1c192e] p-5 rounded-2xl border border-emerald-500/30">
+          <div class="flex justify-between items-center mb-2">
+            <span class="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-3 py-1 rounded-lg text-xs font-bold">
+              💎 Step 3 বা ব্যাকআপ পুল (অপশনাল)
             </span>
-            <p class="text-[10px] text-gray-400 text-center mt-1">৩য় স্টেপ বা ব্যাকআপ</p>
+            <div class="text-xs text-gray-400">
+              মোট ক্লিক: <b class="text-amber-400">{{ settings.clicks_pool_3 or 0 }}</b>
+            </div>
           </div>
-          <div class="flex-1 w-full">
-            <input type="url" name="ad_link_3" value="{{ settings.ad_link_3 or '' }}" placeholder="https://hilltopads.com/... (Optional 3rd Link)" class="w-full bg-[#110f1d] border border-gray-700 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500">
-          </div>
-          <div class="bg-[#110f1d] border border-gray-700 px-4 py-2 rounded-xl text-center min-w-[90px]">
-            <p class="text-[9px] text-gray-400 font-bold uppercase">Clicks</p>
-            <span class="text-amber-400 font-black text-sm">{{ settings.clicks_ad_3 or 0 }}</span>
-          </div>
+          <p class="text-[11px] text-gray-400 mb-2">অন্য কোনো নেটওয়ার্ক থাকলে প্রতি লাইনে ১টি করে দিন:</p>
+          <textarea name="ad_pool_3" rows="2" placeholder="https://other-network-1.com/...&#10;https://other-network-2.com/..." class="w-full bg-[#110f1d] border border-gray-700 rounded-xl p-3 text-xs font-mono text-emerald-300 focus:outline-none focus:border-emerald-500">{{ settings.ad_pool_3 or '' }}</textarea>
         </div>
 
         <!-- সেভ বাটন -->
-        <button type="submit" class="w-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-black py-3 rounded-2xl text-xs shadow-xl shadow-purple-900/30 transition">
-          💾 ৩টি অ্যাড লিংক একসাথে সেভ ও চালু করুন
+        <button type="submit" class="w-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-black py-3.5 rounded-2xl text-xs shadow-xl shadow-purple-900/30 transition">
+          💾 সমস্ত ডিরেক্ট লিংক পুল একসাথে সেভ ও চালু করুন
         </button>
       </form>
     </div>
