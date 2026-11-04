@@ -16,9 +16,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, HttpUrl
 from itsdangerous import URLSafeTimedSerializer
 
-# -----------------------------------------------------------------------------
-# কনফিগারেশন ও এনভায়রনমেন্ট
-# -----------------------------------------------------------------------------
+# কনফিগারেশন
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 DEFAULT_MONGO = "mongodb+srv://MovieLinkbd:MovieLinkbd@cluster0.cmx4zn5.mongodb.net/smart_shortener?retryWrites=true&w=majority"
 raw_mongo = os.getenv("MONGO_URI", "").strip()
@@ -63,75 +61,37 @@ def generate_unique_code_sync(length=6):
             return code
     return "".join(secrets.choice(chars) for _ in range(length + 2))
 
-# -----------------------------------------------------------------------------
-# 🔥 আল্টিমেট হাই-সিপিএম রোটেশন ইঞ্জিন (Chrono-Shift + Step-Split Matrix)
-# -----------------------------------------------------------------------------
-async def resolve_step_direct_link(step_number: int):
-    """
-    নির্ধারিত স্টেপের জন্য অ্যাক্টিভ ডিরেক্ট লিংক নির্বাচন করে।
-    ১ ঘণ্টার রোটেশন টাইম পার হলে স্বয়ংক্রিয়ভাবে পরবর্তী লিংকে শিফট করে
-    এবং ক্লিক সংখ্যা তাৎক্ষণিক ডাটাবেজে বৃদ্ধি করে।
-    """
-    try:
-        now = datetime.now(timezone.utc)
-        
-        # নির্দিষ্ট স্টেপের জন্য লিংক খুঁজুন (step_target == step_number অথবা ০ হলে অল স্টেপ)
-        query = {
-            "status": {"$in": ["Active", "Queued"]},
-            "$or": [{"step_target": step_number}, {"step_target": 0}]
-        }
-        
-        links = await db.direct_links.find(query).sort("order", 1).to_list(100)
-        
-        # কোনো স্পেসিফিক লিংক না পেলে যেকোনো অ্যাক্টিভ ডিরেক্ট লিংক ব্যাকআপ হিসেবে নেবে
-        if not links:
-            fallback = await db.direct_links.find({"status": "Active"}).to_list(1)
-            if not fallback:
-                return None
-            chosen = fallback[0]
-            await db.direct_links.update_one({"_id": chosen["_id"]}, {"$inc": {"clicks": 1}})
-            return chosen["url"]
+# 🌟 ৩-বক্স হাই-সিপিএম অ্যাড রোটেটর ও লাইভ ক্লিক কাউন্টার
+async def get_direct_ad_for_step(step_number: int):
+    settings = await db.settings.find_one({"type": "global"}) or {}
+    chosen_url = ""
+    click_field = ""
 
-        # বর্তমানে কোনো লিংক লাইভ (Active) আছে কি না দেখুন
-        active_link = next((l for l in links if l.get("status") == "Active"), None)
+    if step_number == 1 and settings.get("ad_link_1"):
+        chosen_url = settings.get("ad_link_1").strip()
+        click_field = "clicks_ad_1"
+    elif step_number == 2 and settings.get("ad_link_2"):
+        chosen_url = settings.get("ad_link_2").strip()
+        click_field = "clicks_ad_2"
+    elif step_number >= 3 and settings.get("ad_link_3"):
+        chosen_url = settings.get("ad_link_3").strip()
+        click_field = "clicks_ad_3"
+    else:
+        # বুদ্ধিমান ফলব্যাক: যদি নির্দিষ্ট স্টেপের লিংক না থাকে তবে যেকোনো সক্রিয় লিংক দেবে
+        if settings.get("ad_link_1"):
+            chosen_url = settings.get("ad_link_1").strip()
+            click_field = "clicks_ad_1"
+        elif settings.get("ad_link_2"):
+            chosen_url = settings.get("ad_link_2").strip()
+            click_field = "clicks_ad_2"
+        elif settings.get("ad_link_3"):
+            chosen_url = settings.get("ad_link_3").strip()
+            click_field = "clicks_ad_3"
 
-        if not active_link:
-            # কোনো অ্যাক্টিভ না থাকলে প্রথম লিংকটিকে লাইভ করুন
-            active_link = links[0]
-            await db.direct_links.update_one(
-                {"_id": active_link["_id"]},
-                {"$set": {"status": "Active", "last_activated_at": now}}
-            )
-        else:
-            # টাইম চেক: ১ ঘণ্টা (duration_minutes) শেষ হয়েছে কি না?
-            last_act = active_link.get("last_activated_at")
-            if not last_act:
-                last_act = now
-                await db.direct_links.update_one({"_id": active_link["_id"]}, {"$set": {"last_activated_at": now}})
-            
-            duration_mins = active_link.get("duration_minutes", 60)
-            elapsed_seconds = (now - last_act).total_seconds()
-
-            # নির্ধারিত সময় পার হলে পরবর্তী লিংকে শিফট হবে (Chrono-Shift)
-            if elapsed_seconds >= (duration_mins * 60) and len(links) > 1:
-                curr_idx = links.index(active_link)
-                next_idx = (curr_idx + 1) % len(links)
-                next_link = links[next_idx]
-
-                # পুরানটিকে কিউ-তে পাঠানো এবং নতুনটিকে অ্যাক্টিভ করা
-                await db.direct_links.update_one({"_id": active_link["_id"]}, {"$set": {"status": "Queued"}})
-                await db.direct_links.update_one(
-                    {"_id": next_link["_id"]},
-                    {"$set": {"status": "Active", "last_activated_at": now}}
-                )
-                active_link = next_link
-
-        # ক্লিক কাউন্ট বাড়ানো
-        await db.direct_links.update_one({"_id": active_link["_id"]}, {"$inc": {"clicks": 1}})
-        return active_link["url"]
-    except Exception as e:
-        print(f"Direct link rotation error: {e}")
-        return None
+    if chosen_url and click_field:
+        await db.settings.update_one({"type": "global"}, {"$inc": {click_field: 1}})
+    
+    return chosen_url
 
 def keep_alive_self_ping():
     time.sleep(30)
@@ -154,7 +114,6 @@ async def lifespan(app: FastAPI):
         await db.links.create_index("short_code", unique=True)
         await db.links.create_index("created_at")
         await db.steps.create_index("order")
-        await db.direct_links.create_index("status")
         await db.clicks.create_index("timestamp")
 
         if not await db.settings.find_one({"type": "global"}):
@@ -168,13 +127,19 @@ async def lifespan(app: FastAPI):
                 "wait_seconds": 7,
                 "native_ad_top": "",
                 "native_ad_bottom": "",
-                "auto_scroll_enabled": True
+                "auto_scroll_enabled": True,
+                "ad_link_1": "",
+                "ad_link_2": "",
+                "ad_link_3": "",
+                "clicks_ad_1": 0,
+                "clicks_ad_2": 0,
+                "clicks_ad_3": 0
             })
 
         if await db.steps.count_documents({}) == 0:
             await db.steps.insert_many([
-                {"name": "Step 1 (Monetag Gate)", "title": "Verifying Link Gateway", "description": "Please wait while we verify destination security.", "timer": 7, "button_text": "Continue", "status": True, "order": 1},
-                {"name": "Step 2 (Adsterra Gate)", "title": "Unlocking Requested Content", "description": "Your requested destination is ready. Click below to proceed.", "timer": 5, "button_text": "Get Link / Download", "status": True, "order": 2}
+                {"name": "Security Check", "title": "Verifying Link Gateway", "description": "Please wait while we verify destination security.", "timer": 7, "button_text": "Continue", "status": True, "order": 1},
+                {"name": "Final Clearance", "title": "Unlocking Requested Content", "description": "Your requested destination is ready. Click below to proceed.", "timer": 5, "button_text": "Get Link / Download", "status": True, "order": 2}
             ])
         print("✅ Database & Settings Ready!")
     except Exception as e:
@@ -218,6 +183,7 @@ async def check_admin_session(request: Request):
 # -----------------------------------------------------------------------------
 # পাবলিক ও মাল্টি-স্টেপ রুট
 # -----------------------------------------------------------------------------
+
 @app.get("/health")
 def health():
     return {"status": "ok", "time": time.time()}
@@ -313,9 +279,9 @@ async def process_step(code: str, step_idx: int, auth: str, request: Request):
     current_step = steps[step_idx]
     await db.links.update_one({"_id": link["_id"]}, {"$inc": {"step_views": 1}})
 
-    # 💰 স্মার্ট স্টেপ-স্প্লিট রোটেটর থেকে ডিরেক্ট লিংক আনা (Step 1 = Monetag, Step 2 = Adsterra)
-    current_step_number = step_idx + 1
-    direct_url = await resolve_step_direct_link(current_step_number)
+    # 💰 ৩-বক্স থেকে স্টেপ অনুযায়ী ডিরেক্ট লিংক পাওয়া
+    step_number = step_idx + 1
+    direct_url = await get_direct_ad_for_step(step_number)
 
     next_token = step_signer.dumps({"code": code, "step": step_idx + 1})
     is_last = (step_idx + 1) >= len(steps)
@@ -326,7 +292,7 @@ async def process_step(code: str, step_idx: int, auth: str, request: Request):
         "mode": "step",
         "site_name": site_title,
         "step": current_step,
-        "step_num": current_step_number,
+        "step_num": step_number,
         "total_steps": len(steps),
         "next_url": next_url,
         "direct_url": direct_url or "",
@@ -385,8 +351,9 @@ async def finalize_redirect(link: dict, request: Request):
     })
 
 # -----------------------------------------------------------------------------
-# অ্যাডমিন প্যানেল ও লাইভ অ্যানালিটিক্স
+# অ্যাডমিন প্যানেল
 # -----------------------------------------------------------------------------
+
 @app.get("/admin/login", response_class=HTMLResponse)
 def admin_login_screen(request: Request):
     return templates.TemplateResponse("admin.html", {"request": request, "mode": "login"})
@@ -419,29 +386,6 @@ async def admin_dashboard(request: Request, auth: bool = Depends(check_admin_ses
 
     links = await db.links.find().sort("created_at", -1).limit(40).to_list(40)
     steps = await db.steps.find().sort("order", 1).to_list(50)
-    
-    # ডিরেক্ট লিংকগুলো সাজানো ও লাইভ অবশিষ্ট সময় ক্যালকুলেশন
-    raw_direct_links = await db.direct_links.find().sort([("step_target", 1), ("order", 1)]).to_list(100)
-    direct_links = []
-    
-    for dl in raw_direct_links:
-        dl_dict = dict(dl)
-        rem_min = 0
-        rem_sec = 0
-        
-        if dl_dict.get("status") == "Active" and dl_dict.get("last_activated_at"):
-            act_time = dl_dict["last_activated_at"]
-            if act_time.tzinfo is None:
-                act_time = act_time.replace(tzinfo=timezone.utc)
-            passed = (now - act_time).total_seconds()
-            dur_sec = dl_dict.get("duration_minutes", 60) * 60
-            remaining = max(0, int(dur_sec - passed))
-            rem_min = remaining // 60
-            rem_sec = remaining % 60
-            
-        dl_dict["remaining_str"] = f"{rem_min}m {rem_sec}s" if dl_dict.get("status") == "Active" else "—"
-        direct_links.append(dl_dict)
-
     channels = await db.channels.find().to_list(50)
     settings = await db.settings.find_one({"type": "global"})
 
@@ -456,63 +400,38 @@ async def admin_dashboard(request: Request, auth: bool = Depends(check_admin_ses
         },
         "links": links,
         "steps": steps,
-        "direct_links": direct_links,
         "channels": channels,
         "settings": settings or {}
     })
 
-# 🔥 ডিরেক্ট লিংক যুক্ত করার নতুন শক্তিশালী API
-@app.post("/api/admin/direct/add")
-async def add_direct(
-    name: str = Form(...),
-    url: str = Form(...),
-    step_target: int = Form(0),          # 0 = All steps, 1 = Step 1, 2 = Step 2...
-    duration_minutes: int = Form(60),    # কত মিনিট চালু থাকবে (ডিফল্ট ৬০ মিনিট)
-    order: int = Form(1),
+# 🌟 ৩-বক্স ডিরেক্ট অ্যাড লিংক একসাথে সেভ
+@app.post("/api/admin/save-direct-matrix")
+async def save_direct_matrix(
+    ad_link_1: str = Form(""),
+    ad_link_2: str = Form(""),
+    ad_link_3: str = Form(""),
     auth: bool = Depends(check_admin_session)
 ):
-    await db.direct_links.insert_one({
-        "name": name.strip(),
-        "url": url.strip(),
-        "step_target": step_target,
-        "duration_minutes": duration_minutes,
-        "order": order,
-        "clicks": 0,
-        "status": "Queued",              # রোটেটর স্বয়ংক্রিয়ভাবে একটিকে Active বানাবে
-        "last_activated_at": None,
-        "created_at": datetime.now(timezone.utc)
-    })
+    await db.settings.update_one(
+        {"type": "global"},
+        {"$set": {
+            "ad_link_1": ad_link_1.strip(),
+            "ad_link_2": ad_link_2.strip(),
+            "ad_link_3": ad_link_3.strip()
+        }},
+        upsert=True
+    )
     return RedirectResponse("/admin", status_code=303)
 
-# ⚡ ইনস্ট্যান্ট অ্যাক্টিভ করার সুইচ
-@app.post("/api/admin/direct/activate/{did}")
-async def force_activate_direct(did: str, auth: bool = Depends(check_admin_session)):
-    target = await db.direct_links.find_one({"_id": ObjectId(did)})
-    if target:
-        # একই স্টেপ টার্গেটের বাকি সব লিংক Queued হবে
-        await db.direct_links.update_many(
-            {"step_target": target.get("step_target", 0), "status": "Active"},
-            {"$set": {"status": "Queued"}}
-        )
-        # সিলেক্ট করা লিংকটি Active হবে
-        await db.direct_links.update_one(
-            {"_id": ObjectId(did)},
-            {"$set": {"status": "Active", "last_activated_at": datetime.now(timezone.utc)}}
-        )
+# 🔄 অ্যাড ক্লিক রিসেট API
+@app.post("/api/admin/reset-matrix-clicks")
+async def reset_matrix_clicks(auth: bool = Depends(check_admin_session)):
+    await db.settings.update_one(
+        {"type": "global"},
+        {"$set": {"clicks_ad_1": 0, "clicks_ad_2": 0, "clicks_ad_3": 0}}
+    )
     return RedirectResponse("/admin", status_code=303)
 
-# 🔄 ক্লিক কাউন্ট রিসেট করার বাটন
-@app.post("/api/admin/direct/reset-clicks/{did}")
-async def reset_direct_clicks(did: str, auth: bool = Depends(check_admin_session)):
-    await db.direct_links.update_one({"_id": ObjectId(did)}, {"$set": {"clicks": 0}})
-    return RedirectResponse("/admin", status_code=303)
-
-@app.post("/api/admin/direct/delete/{did}")
-async def del_direct(did: str, auth: bool = Depends(check_admin_session)):
-    await db.direct_links.delete_one({"_id": ObjectId(did)})
-    return RedirectResponse("/admin", status_code=303)
-
-# 📢 অন্যান্য সাধারণ অ্যাডমিন অ্যাকশন
 @app.post("/api/admin/channels/add")
 async def add_channel(name: str = Form(...), channel_id: str = Form(...), auth: bool = Depends(check_admin_session)):
     await db.channels.insert_one({"name": name.strip(), "channel_id": channel_id.strip()})
