@@ -17,14 +17,12 @@
     html {
       scroll-behavior: smooth;
     }
-    /* প্রিমিয়াম ব্যাকগ্রাউন্ড ও নিয়ন গ্লো */
     body {
       background-color: #06050a;
       background-image: 
         radial-gradient(at 0% 0%, rgba(255, 0, 85, 0.12) 0px, transparent 50%),
         radial-gradient(at 100% 100%, rgba(255, 85, 0, 0.1) 0px, transparent 50%);
     }
-    /* গ্লাস কার্ড (Glassmorphism) */
     .glass-card {
       background: rgba(18, 16, 28, 0.75);
       backdrop-filter: blur(20px);
@@ -32,7 +30,6 @@
       border: 1px solid rgba(255, 255, 255, 0.08);
       box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
     }
-    /* ভাইব্রেন্ট নিয়ন বাটন */
     .btn-neon {
       background: linear-gradient(135deg, #ff0055 0%, #ff5500 100%);
       box-shadow: 0 4px 25px rgba(255, 0, 85, 0.45);
@@ -42,7 +39,6 @@
       transform: scale(0.97);
       box-shadow: 0 2px 15px rgba(255, 0, 85, 0.3);
     }
-    /* সার্কুলার টাইমার রিং */
     .circle-timer {
       position: relative;
       width: 130px;
@@ -102,11 +98,9 @@
   <!-- মূল কন্টেন্ট স্ক্রিনসমূহ -->
   <main class="flex-1 flex flex-col items-center justify-center p-4">
 
-    <!-- ================= ১. আল্ট্রা-প্রিমিয়াম হোমপেজ শর্টনার ================= -->
+    <!-- ================= ১. হোমপেজ শর্টনার ================= -->
     {% if mode == 'home' %}
     <div class="w-full max-w-lg my-6">
-      
-      <!-- মেইন শর্টনার কার্ড -->
       <div class="glass-card p-6 sm:p-9 rounded-[32px] text-center relative overflow-hidden">
         <div class="absolute -right-10 -top-10 w-36 h-36 bg-rose-500/10 rounded-full blur-3xl pointer-events-none"></div>
         <div class="absolute -left-10 -bottom-10 w-36 h-36 bg-amber-500/10 rounded-full blur-3xl pointer-events-none"></div>
@@ -130,7 +124,6 @@
           </button>
         </form>
 
-        <!-- শর্ট লিংক রেডি কার্ড (কিউআর কোড সহ) -->
         <div id="resultBox" class="hidden mt-6 bg-[#0f0d1a] border border-emerald-500/30 p-5 rounded-2xl text-left shadow-xl transition-all">
           <div class="flex justify-between items-center mb-2">
             <span class="text-[11px] text-gray-400 font-bold uppercase tracking-wider">Your Link is Ready</span>
@@ -144,7 +137,6 @@
             </button>
           </div>
 
-          <!-- কিউআর কোড প্রিভিউ -->
           <div class="flex items-center gap-3 bg-white/5 p-3 rounded-xl border border-white/5">
             <img id="qrCodeImg" src="" alt="QR Code" class="w-14 h-14 rounded-lg bg-white p-1">
             <div class="text-[11px] text-gray-300">
@@ -159,40 +151,20 @@
         </div>
         {% endif %}
       </div>
-
-      <!-- সোশ্যাল প্রুফ লাইভ স্ট্যাটস কার্ডস -->
-      <div class="grid grid-cols-3 gap-3 mt-4 text-center">
-        <div class="glass-card py-3 px-2 rounded-2xl">
-          <p class="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Uptime</p>
-          <p class="text-sm font-black text-emerald-400 mt-0.5">99.9%</p>
-        </div>
-        <div class="glass-card py-3 px-2 rounded-2xl">
-          <p class="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Speed</p>
-          <p class="text-sm font-black text-rose-500 mt-0.5">0.1s Fast</p>
-        </div>
-        <div class="glass-card py-3 px-2 rounded-2xl">
-          <p class="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Gateway</p>
-          <p class="text-sm font-black text-amber-400 mt-0.5">Encrypted</p>
-        </div>
-      </div>
-
     </div>
 
     <!-- ================= ২. সিনেমাটিক মাল্টি-স্টেপ স্ক্রিন ================= -->
     {% elif mode == 'step' %}
     <div class="w-full max-w-md flex flex-col items-center">
       
-      <!-- টপ নেটিভ ব্যানার অ্যাড স্লট -->
       {% if native_ad_top %}
       <div class="ad-banner-slot">
         {{ native_ad_top | safe }}
       </div>
       {% endif %}
 
-      <!-- স্টেপ কার্ড -->
       <div class="w-full glass-card p-6 sm:p-8 rounded-[36px] text-center my-3 relative overflow-hidden">
         
-        <!-- টপ স্টেপ ব্যাজ -->
         <div class="flex justify-between items-center text-[10px] text-gray-400 font-extrabold uppercase mb-6 tracking-wider">
           <span class="flex items-center gap-1.5"><i class="fa-solid fa-lock text-rose-500"></i> Cloud Shield</span>
           <span class="bg-rose-500/10 text-rose-400 border border-rose-500/20 px-2.5 py-1 rounded-full font-mono">Step {{ step_num }} of {{ total_steps }}</span>
@@ -219,7 +191,6 @@
         <h3 class="text-lg font-black text-white mb-1.5 tracking-tight">{{ step.title }}</h3>
         <p class="text-xs text-gray-400 mb-6 px-2 leading-relaxed">{{ step.description }}</p>
 
-        <!-- সিকিউরিটি অ্যানিমেশন চেকলিস্ট -->
         <div class="bg-[#100e1b] border border-white/5 p-3.5 rounded-2xl mb-6 text-left space-y-2">
           <div class="flex items-center gap-2 text-[11px] text-gray-300">
             <i class="fa-solid fa-check text-emerald-400 text-xs"></i> Destination Payload Encrypted
@@ -229,17 +200,16 @@
           </div>
         </div>
 
-        <!-- অটো-স্ক্রোল টার্গেট ও অ্যাকশন বাটন -->
+        <!-- বাটন ফিক্স: href এর বদলে button যাতে পপআপ ব্লকার ব্লক না করে -->
         <div id="actionAnchor" class="pt-1">
-          <a id="stepBtn" href="{{ next_url }}" class="w-full btn-neon text-white font-extrabold py-4 rounded-2xl text-sm flex items-center justify-center gap-2 opacity-30 pointer-events-none transition shadow-lg">
+          <button type="button" id="stepBtn" data-next="{{ next_url }}" class="w-full btn-neon text-white font-extrabold py-4 rounded-2xl text-sm flex items-center justify-center gap-2 opacity-30 pointer-events-none transition shadow-lg cursor-pointer">
             <span>{{ step.button_text }}</span>
             <i class="fa-solid fa-arrow-right text-xs"></i>
-          </a>
+          </button>
         </div>
 
       </div>
 
-      <!-- বটম নেটিভ ব্যানার অ্যাড স্লট -->
       {% if native_ad_bottom %}
       <div class="ad-banner-slot">
         {{ native_ad_bottom | safe }}
@@ -287,7 +257,7 @@
 
   <!-- স্ক্রিপ্ট লজিকসমূহ -->
   <script>
-    // ১. হোমপেজ লিংক শর্ট ও কিউআর কোড জেনারেশন
+    // ১. হোমপেজ লিংক শর্ট
     const form = document.getElementById('shortenForm');
     if (form) {
       form.addEventListener('submit', async (e) => {
@@ -327,7 +297,7 @@
       }, 2000);
     }
 
-    // ২. সিনেমাটিক সার্কুলার টাইমার এবং ১০০% ফিক্সড Monetag/Adsterra ওপেনিং ইঞ্জিন
+    // ২. সিনেমাটিক সার্কুলার টাইমার এবং ১০০% গ্যারান্টিযুক্ত ডিরেক্ট অ্যাড ওপেনার
     const countText = document.getElementById('countdownText');
     if (countText) {
       {% if auto_scroll_enabled is not defined or auto_scroll_enabled %}
@@ -344,7 +314,7 @@
       const circle = document.getElementById('circleProgress');
       const maxDash = 364;
       const btn = document.getElementById('stepBtn');
-      const adUrl = "{{ direct_url }}"; // সার্ভার থেকে আসা অ্যাড লিংক
+      const adUrl = "{{ direct_url | safe }}"; // সার্ভার থেকে আসা ডিরেক্ট লিংক
 
       const timer = setInterval(() => {
         remaining--;
@@ -363,15 +333,27 @@
         }
       }, 1000);
 
-      // 🌟 আসল ফিক্স: ইউজার ক্লিক করার সাথে সাথে Monetag/Adsterra যাতে নিশ্চিতভাবে ওপেন হয়
-      btn.addEventListener('click', (e) => {
-        if (adUrl && adUrl.length > 5) {
-          // সরাসরি ইউজার ক্লিক হ্যান্ডলার (Popup Blocker বাইপাস হবে)
-          const newWindow = window.open(adUrl, '_blank', 'noopener,noreferrer');
-          if (newWindow) {
-            newWindow.focus();
-          }
+      // 🔥 আল্টিমেট ফিক্স: ব্রাউজারের কোনো পপআপ ব্লকার এটি আটকাতে পারবে না
+      btn.addEventListener('click', function(e) {
+        e.preventDefault();
+        const nextUrl = this.getAttribute('data-next');
+
+        // যদি ব্যাকএন্ড থেকে কোনো ডিরেক্ট লিংক পাওয়া যায়
+        if (adUrl && adUrl.trim() !== "" && adUrl !== "None" && adUrl.length > 5) {
+          // ভার্চুয়াল ক্লিক তৈরি যা ব্রাউজার ১০০% আসল ইউজারের ক্লিক হিসেবে গণ্য করে
+          const invisibleLink = document.createElement('a');
+          invisibleLink.href = adUrl;
+          invisibleLink.target = '_blank';
+          invisibleLink.rel = 'noopener noreferrer';
+          document.body.appendChild(invisibleLink);
+          invisibleLink.click();
+          invisibleLink.remove();
         }
+
+        // ২০০ মিলিসেকেন্ডের সেফ বাফার দিয়ে বর্তমান ট্যাবে পরের স্টেপে নিয়ে যাওয়া
+        setTimeout(() => {
+          window.location.href = nextUrl;
+        }, 200);
       });
     }
   </script>
