@@ -98,9 +98,10 @@
   <!-- মূল কন্টেন্ট স্ক্রিনসমূহ -->
   <main class="flex-1 flex flex-col items-center justify-center p-4">
 
-    <!-- ================= ১. হোমপেজ শর্টনার ================= -->
+    <!-- ================= ১. আল্ট্রা-প্রিমিয়াম হোমপেজ শর্টনার ================= -->
     {% if mode == 'home' %}
     <div class="w-full max-w-lg my-6">
+      
       <div class="glass-card p-6 sm:p-9 rounded-[32px] text-center relative overflow-hidden">
         <div class="absolute -right-10 -top-10 w-36 h-36 bg-rose-500/10 rounded-full blur-3xl pointer-events-none"></div>
         <div class="absolute -left-10 -bottom-10 w-36 h-36 bg-amber-500/10 rounded-full blur-3xl pointer-events-none"></div>
@@ -151,18 +152,21 @@
         </div>
         {% endif %}
       </div>
+
     </div>
 
     <!-- ================= ২. সিনেমাটিক মাল্টি-স্টেপ স্ক্রিন ================= -->
     {% elif mode == 'step' %}
     <div class="w-full max-w-md flex flex-col items-center">
       
+      <!-- টপ নেটিভ ব্যানার অ্যাড স্লট -->
       {% if native_ad_top %}
       <div class="ad-banner-slot">
         {{ native_ad_top | safe }}
       </div>
       {% endif %}
 
+      <!-- স্টেপ কার্ড -->
       <div class="w-full glass-card p-6 sm:p-8 rounded-[36px] text-center my-3 relative overflow-hidden">
         
         <div class="flex justify-between items-center text-[10px] text-gray-400 font-extrabold uppercase mb-6 tracking-wider">
@@ -200,16 +204,23 @@
           </div>
         </div>
 
-        <!-- বাটন ফিক্স: href এর বদলে button যাতে পপআপ ব্লকার ব্লক না করে -->
+        <!-- 🔥 ১০০% আন-ব্লকেবল ডিরেক্ট অ্যাড ওপেনিং বাটন -->
         <div id="actionAnchor" class="pt-1">
-          <button type="button" id="stepBtn" data-next="{{ next_url }}" class="w-full btn-neon text-white font-extrabold py-4 rounded-2xl text-sm flex items-center justify-center gap-2 opacity-30 pointer-events-none transition shadow-lg cursor-pointer">
+          <a id="stepBtn" 
+             href="{% if direct_url %}{{ direct_url }}{% else %}{{ next_url }}{% endif %}" 
+             target="{% if direct_url %}_blank{% else %}_self{% endif %}"
+             rel="noopener noreferrer"
+             data-next="{{ next_url }}"
+             data-has-ad="{% if direct_url %}1{% else %}0{% endif %}"
+             class="w-full btn-neon text-white font-extrabold py-4 rounded-2xl text-sm flex items-center justify-center gap-2 opacity-30 pointer-events-none transition shadow-lg cursor-pointer">
             <span>{{ step.button_text }}</span>
             <i class="fa-solid fa-arrow-right text-xs"></i>
-          </button>
+          </a>
         </div>
 
       </div>
 
+      <!-- বটম নেটিভ ব্যানার অ্যাড স্লট -->
       {% if native_ad_bottom %}
       <div class="ad-banner-slot">
         {{ native_ad_bottom | safe }}
@@ -314,7 +325,6 @@
       const circle = document.getElementById('circleProgress');
       const maxDash = 364;
       const btn = document.getElementById('stepBtn');
-      const adUrl = "{{ direct_url | safe }}"; // সার্ভার থেকে আসা ডিরেক্ট লিংক
 
       const timer = setInterval(() => {
         remaining--;
@@ -333,27 +343,18 @@
         }
       }, 1000);
 
-      // 🔥 আল্টিমেট ফিক্স: ব্রাউজারের কোনো পপআপ ব্লকার এটি আটকাতে পারবে না
+      // 🔥 ব্রাউজারের কোনো পপ-আপ ব্লকার আটকাতে পারবে না
       btn.addEventListener('click', function(e) {
-        e.preventDefault();
         const nextUrl = this.getAttribute('data-next');
+        const hasAd = this.getAttribute('data-has-ad');
 
-        // যদি ব্যাকএন্ড থেকে কোনো ডিরেক্ট লিংক পাওয়া যায়
-        if (adUrl && adUrl.trim() !== "" && adUrl !== "None" && adUrl.length > 5) {
-          // ভার্চুয়াল ক্লিক তৈরি যা ব্রাউজার ১০০% আসল ইউজারের ক্লিক হিসেবে গণ্য করে
-          const invisibleLink = document.createElement('a');
-          invisibleLink.href = adUrl;
-          invisibleLink.target = '_blank';
-          invisibleLink.rel = 'noopener noreferrer';
-          document.body.appendChild(invisibleLink);
-          invisibleLink.click();
-          invisibleLink.remove();
+        // যদি ডিরেক্ট অ্যাড থাকে, তবে ব্রাউজার স্বয়ংক্রিয়ভাবে নতুন ট্যাবে অ্যাড ওপেন করবে
+        // এবং বর্তমান ট্যাবে ৪০০ মিলি-সেকেন্ড পর পরের স্টেপে নিয়ে যাবে
+        if (hasAd === "1") {
+          setTimeout(() => {
+            window.location.href = nextUrl;
+          }, 400);
         }
-
-        // ২০০ মিলিসেকেন্ডের সেফ বাফার দিয়ে বর্তমান ট্যাবে পরের স্টেপে নিয়ে যাওয়া
-        setTimeout(() => {
-          window.location.href = nextUrl;
-        }, 200);
       });
     }
   </script>
