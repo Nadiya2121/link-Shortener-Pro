@@ -32,7 +32,6 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123").strip()
 BASE_URL = os.getenv("BASE_URL", "http://localhost:8000").rstrip("/")
 PORT = int(os.getenv("PORT", "8000"))
 
-# মাল্টিপল অ্যাডমিন আইডি ফিল্টার
 admin_raw = os.getenv("ADMIN_IDS", "5370676246")
 ADMIN_IDS = []
 for item in admin_raw.replace(" ", "").split(","):
@@ -61,36 +60,63 @@ def generate_unique_code_sync(length=6):
             return code
     return "".join(secrets.choice(chars) for _ in range(length + 2))
 
-# 🌟 ৩-বক্স হাই-সিপিএম অ্যাড রোটেটর ও লাইভ ক্লিক কাউন্টার
+# 🌟 মাল্টি-লিংক পুল রোটেটর (বক্স থেকে লাইন বাই লাইন অটো রোটেশন)
 async def get_direct_ad_for_step(step_number: int):
     settings = await db.settings.find_one({"type": "global"}) or {}
-    chosen_url = ""
-    click_field = ""
-
-    if step_number == 1 and settings.get("ad_link_1"):
-        chosen_url = settings.get("ad_link_1").strip()
-        click_field = "clicks_ad_1"
-    elif step_number == 2 and settings.get("ad_link_2"):
-        chosen_url = settings.get("ad_link_2").strip()
-        click_field = "clicks_ad_2"
-    elif step_number >= 3 and settings.get("ad_link_3"):
-        chosen_url = settings.get("ad_link_3").strip()
-        click_field = "clicks_ad_3"
-    else:
-        # বুদ্ধিমান ফলব্যাক: যদি নির্দিষ্ট স্টেপের লিংক না থাকে তবে যেকোনো সক্রিয় লিংক দেবে
-        if settings.get("ad_link_1"):
-            chosen_url = settings.get("ad_link_1").strip()
-            click_field = "clicks_ad_1"
-        elif settings.get("ad_link_2"):
-            chosen_url = settings.get("ad_link_2").strip()
-            click_field = "clicks_ad_2"
-        elif settings.get("ad_link_3"):
-            chosen_url = settings.get("ad_link_3").strip()
-            click_field = "clicks_ad_3"
-
-    if chosen_url and click_field:
-        await db.settings.update_one({"type": "global"}, {"$inc": {click_field: 1}})
     
+    # স্টেপ অনুযায়ী পুল সিলেক্ট করা
+    pool_raw = ""
+    pool_key = ""
+    idx_key = ""
+    click_key = ""
+
+    if step_number == 1:
+        pool_raw = settings.get("ad_pool_1", "")
+        pool_key = "ad_pool_1"
+        idx_key = "pool_idx_1"
+        click_key = "clicks_pool_1"
+    elif step_number == 2:
+        pool_raw = settings.get("ad_pool_2", "")
+        pool_key = "ad_pool_2"
+        idx_key = "pool_idx_2"
+        click_key = "clicks_pool_2"
+    else:
+        pool_raw = settings.get("ad_pool_3", "") or settings.get("ad_pool_1", "")
+        pool_key = "ad_pool_3"
+        idx_key = "pool_idx_3"
+        click_key = "clicks_pool_3"
+
+    # লাইনগুলো আলাদা করা
+    links = [line.strip() for line in pool_raw.splitlines() if line.strip().startswith("http")]
+    
+    # ফলব্যাক যদি বর্তমান পুলে কিছু না থাকে
+    if not links:
+        for backup_key in ["ad_pool_1", "ad_pool_2", "ad_pool_3"]:
+            backup_raw = settings.get(backup_key, "")
+            links = [line.strip() for line in backup_raw.splitlines() if line.strip().startswith("http")]
+            if links:
+                pool_key = backup_key
+                idx_key = f"pool_idx_{backup_key[-1]}"
+                click_key = f"clicks_pool_{backup_key[-1]}"
+                break
+
+    if not links:
+        return ""
+
+    # রাউন্ড-রবিন সিরিয়াল অনুযায়ী ১টি লিংক নেওয়া
+    curr_idx = settings.get(idx_key, 0)
+    chosen_url = links[curr_idx % len(links)]
+
+    # পরবর্তী ইউজারের জন্য ইনডেক্স এবং ক্লিক সংখ্যা আপডেট করা
+    next_idx = (curr_idx + 1) % len(links)
+    await db.settings.update_one(
+        {"type": "global"},
+        {
+            "$set": {idx_key: next_idx},
+            "$inc": {click_key: 1}
+        }
+    )
+
     return chosen_url
 
 def keep_alive_self_ping():
@@ -128,12 +154,15 @@ async def lifespan(app: FastAPI):
                 "native_ad_top": "",
                 "native_ad_bottom": "",
                 "auto_scroll_enabled": True,
-                "ad_link_1": "",
-                "ad_link_2": "",
-                "ad_link_3": "",
-                "clicks_ad_1": 0,
-                "clicks_ad_2": 0,
-                "clicks_ad_3": 0
+                "ad_pool_1": "",
+                "ad_pool_2": "",
+                "ad_pool_3": "",
+                "pool_idx_1": 0,
+                "pool_idx_2": 0,
+                "pool_idx_3": 0,
+                "clicks_pool_1": 0,
+                "clicks_pool_2": 0,
+                "clicks_pool_3": 0
             })
 
         if await db.steps.count_documents({}) == 0:
@@ -181,9 +210,8 @@ async def check_admin_session(request: Request):
     return True
 
 # -----------------------------------------------------------------------------
-# পাবলিক ও মাল্টি-স্টেপ রুট
+# পাবলিক ও স্টেপ রুট
 # -----------------------------------------------------------------------------
-
 @app.get("/health")
 def health():
     return {"status": "ok", "time": time.time()}
@@ -279,7 +307,7 @@ async def process_step(code: str, step_idx: int, auth: str, request: Request):
     current_step = steps[step_idx]
     await db.links.update_one({"_id": link["_id"]}, {"$inc": {"step_views": 1}})
 
-    # 💰 ৩-বক্স থেকে স্টেপ অনুযায়ী ডিরেক্ট লিংক পাওয়া
+    # 💰 নির্দিষ্ট স্টেপের পুল থেকে স্বয়ংক্রিয়ভাবে একটি লিংক নেওয়া
     step_number = step_idx + 1
     direct_url = await get_direct_ad_for_step(step_number)
 
@@ -353,7 +381,6 @@ async def finalize_redirect(link: dict, request: Request):
 # -----------------------------------------------------------------------------
 # অ্যাডমিন প্যানেল
 # -----------------------------------------------------------------------------
-
 @app.get("/admin/login", response_class=HTMLResponse)
 def admin_login_screen(request: Request):
     return templates.TemplateResponse("admin.html", {"request": request, "mode": "login"})
@@ -404,20 +431,20 @@ async def admin_dashboard(request: Request, auth: bool = Depends(check_admin_ses
         "settings": settings or {}
     })
 
-# 🌟 ৩-বক্স ডিরেক্ট অ্যাড লিংক একসাথে সেভ
+# 🌟 মাল্টি-লিংক বক্সগুলো একসাথে সেভ
 @app.post("/api/admin/save-direct-matrix")
 async def save_direct_matrix(
-    ad_link_1: str = Form(""),
-    ad_link_2: str = Form(""),
-    ad_link_3: str = Form(""),
+    ad_pool_1: str = Form(""),
+    ad_pool_2: str = Form(""),
+    ad_pool_3: str = Form(""),
     auth: bool = Depends(check_admin_session)
 ):
     await db.settings.update_one(
         {"type": "global"},
         {"$set": {
-            "ad_link_1": ad_link_1.strip(),
-            "ad_link_2": ad_link_2.strip(),
-            "ad_link_3": ad_link_3.strip()
+            "ad_pool_1": ad_pool_1.strip(),
+            "ad_pool_2": ad_pool_2.strip(),
+            "ad_pool_3": ad_pool_3.strip()
         }},
         upsert=True
     )
@@ -428,7 +455,7 @@ async def save_direct_matrix(
 async def reset_matrix_clicks(auth: bool = Depends(check_admin_session)):
     await db.settings.update_one(
         {"type": "global"},
-        {"$set": {"clicks_ad_1": 0, "clicks_ad_2": 0, "clicks_ad_3": 0}}
+        {"$set": {"clicks_pool_1": 0, "clicks_pool_2": 0, "clicks_pool_3": 0}}
     )
     return RedirectResponse("/admin", status_code=303)
 
